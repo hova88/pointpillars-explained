@@ -6,17 +6,19 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
 
 type Point=[number,number,number,number];
+type PointRecord={point:Point;index:number};
+type PillarCell={key:string;ix:number;iy:number;x0:number;x1:number;y0:number;y1:number;center:[number,number,number];mean:[number,number,number];records:PointRecord[]};
 type DemoData={points:Point[];originalPointCount:number};
 type BoxAnnotation={category:string;center:[number,number,number];dimensions:[number,number,number];yaw:number;numLidarPoints:number;numRadarPoints:number;token:string};
 type BoxData={boxes:BoxAnnotation[]};
-export type PillarMetrics={count:number;center:[number,number,number];mean:[number,number,number];selected:Point};
+export type PillarMetrics={count:number;center:[number,number,number];mean:[number,number,number];selected:Point;cellIndex:[number,number];nonEmptyPillars:number;maxPoints:number};
 export type SceneSelection=
   |{kind:"point";index:number;point:Point;range:number;cell:[number,number];insideTeachingPillar:boolean}
   |{kind:"box";source:"nuScenes ground truth"|"teaching geometry";category:string;center:[number,number,number];dimensions:[number,number,number];yaw:number;numLidarPoints:number;numRadarPoints:number;token:string}
   |{kind:"cell";stage:"quantization grid"|"pseudo-image";index:[number,number];center:[number,number];bounds:[number,number,number,number];size:number;pointCount:number};
 
-const CELL={x0:-7.5,x1:-6,y0:-9,y1:-7.5,z0:-2.5,z1:3.5};
-const FIXED_CENTER:[number,number,number]=[(CELL.x0+CELL.x1)/2,(CELL.y0+CELL.y1)/2,(CELL.z0+CELL.z1)/2];
+const GRID_EXTENT=24,PILLAR_SIZE=1.5,Z_MIN=-2.5,Z_MAX=3.5,DEFAULT_PILLAR_KEY="11,10";
+const DEFAULT_CENTER:[number,number,number]=[-6.75,-8.25,.5];
 const PAPER="#f8f6ed";
 const EGO_BOX:BoxAnnotation={category:"ego vehicle envelope",center:[0,0,-1],dimensions:[4.6,1.95,1.5],yaw:Math.PI/2,numLidarPoints:0,numRadarPoints:0,token:"ego-teaching-envelope"};
 
@@ -25,28 +27,27 @@ const VectorLine=({from,to,color,width=1}:{from:[number,number,number];to:[numbe
   return <line><bufferGeometry><bufferAttribute attach="attributes-position" args={[positions,3]}/></bufferGeometry><lineBasicMaterial color={color} linewidth={width}/></line>;
 };
 
-function StoryCamera({step}:{step:number}){
+function StoryCamera({step,focus}:{step:number;focus:[number,number,number]}){
   const {camera,gl}=useThree();
   const controls=useRef<OrbitControls|null>(null);
   const transition=useRef(0);
   const destination=useMemo(()=>{
-    const look=new THREE.Vector3(...FIXED_CENTER);
+    const look=new THREE.Vector3(...focus);
     if(step===0)return {position:new THREE.Vector3(31,27,25),look:new THREE.Vector3(0,0,0)};
     if(step===1)return {position:new THREE.Vector3(0,8,72),look:new THREE.Vector3(0,8,0)};
-    if(step===2)return {position:look.clone().add(new THREE.Vector3(8,8,7)),look};
-    if(step<=5)return {position:look.clone().add(new THREE.Vector3(5.2,5.2,4.2)),look};
-    if(step<=7)return {position:look.clone().add(new THREE.Vector3(9,8,7)),look};
-    if(step===8)return {position:new THREE.Vector3(0,0,46),look:new THREE.Vector3(0,0,-2)};
-    if(step===9)return {position:new THREE.Vector3(27,23,24),look:new THREE.Vector3(0,1,5)};
+    if(step===2)return {position:new THREE.Vector3(34,32,38),look:new THREE.Vector3(0,4,0)};
+    if(step===3)return {position:look.clone().add(new THREE.Vector3(8.5,8.5,7.5)),look};
+    if(step===4)return {position:new THREE.Vector3(0,0,46),look:new THREE.Vector3(0,0,-2)};
+    if(step===5)return {position:new THREE.Vector3(27,23,24),look:new THREE.Vector3(0,1,5)};
     return {position:new THREE.Vector3(25,21,20),look:new THREE.Vector3(-3,1,0)};
-  },[step]);
+  },[step,focus]);
   useEffect(()=>{
     const orbit=new OrbitControls(camera,gl.domElement);
     orbit.enableDamping=true;orbit.dampingFactor=.065;orbit.enablePan=false;orbit.minDistance=2;orbit.maxDistance=190;
     controls.current=orbit;
     return()=>orbit.dispose();
   },[camera,gl]);
-  useEffect(()=>{transition.current=0},[step]);
+  useEffect(()=>{transition.current=0},[step,focus]);
   useFrame(()=>{
     const orbit=controls.current;
     if(transition.current<.995){
@@ -59,44 +60,68 @@ function StoryCamera({step}:{step:number}){
   return null;
 }
 
-function MetricGrid({local=false}:{local?:boolean}){
+function MetricGrid({local=false,center=DEFAULT_CENTER}:{local?:boolean;center?:[number,number,number]}){
   const positions=useMemo(()=>{
     const p:number[]=[];const extent=local?4.5:24;const step=1.5;
-    const cx=local?FIXED_CENTER[0]:0,cy=local?FIXED_CENTER[1]:0;
+    const cx=local?center[0]:0,cy=local?center[1]:0;
     for(let d=-extent;d<=extent+.01;d+=step){p.push(cx-extent,cy+d,-2.49,cx+extent,cy+d,-2.49,cx+d,cy-extent,-2.49,cx+d,cy+extent,-2.49)}
     return new Float32Array(p);
-  },[local]);
+  },[local,center]);
   return <lineSegments><bufferGeometry><bufferAttribute attach="attributes-position" args={[positions,3]}/></bufferGeometry><lineBasicMaterial color={local?"#c4d9e3":"#d9d9d5"} transparent opacity={local?.8:.65}/></lineSegments>;
 }
 
-function Pillar({step}:{step:number}){
-  const group=useRef<THREE.Group>(null);
-  useFrame(()=>{if(group.current){group.current.scale.z=THREE.MathUtils.lerp(group.current.scale.z,1,.085);group.current.rotation.z=THREE.MathUtils.lerp(group.current.rotation.z,0,.085)}});
-  return <group ref={group} scale={[1,1,.03]} rotation={[0,0,.06]}>
-    <mesh position={FIXED_CENTER} renderOrder={2}>
-      <boxGeometry args={[CELL.x1-CELL.x0,CELL.y1-CELL.y0,CELL.z1-CELL.z0]}/>
-      <meshPhysicalMaterial color="#b9ddeb" transparent opacity={step>=2?.22:.08} roughness={.18} metalness={.02} transmission={.28} thickness={1.4} depthWrite={false} side={THREE.DoubleSide}/>
+function SelectedPillar({cell}:{cell:PillarCell}){
+  return <group>
+    <mesh position={cell.center} renderOrder={2}>
+      <boxGeometry args={[PILLAR_SIZE,PILLAR_SIZE,Z_MAX-Z_MIN]}/>
+      <meshPhysicalMaterial color="#b9ddeb" transparent opacity={.24} roughness={.18} metalness={.02} transmission={.3} thickness={1.4} clearcoat={1} clearcoatRoughness={.2} depthWrite={false} side={THREE.DoubleSide}/>
     </mesh>
-    <mesh position={FIXED_CENTER} renderOrder={3}>
-      <boxGeometry args={[CELL.x1-CELL.x0,CELL.y1-CELL.y0,CELL.z1-CELL.z0]}/>
+    <mesh position={cell.center} renderOrder={3}>
+      <boxGeometry args={[PILLAR_SIZE,PILLAR_SIZE,Z_MAX-Z_MIN]}/>
       <meshBasicMaterial color="#72a9c2" transparent opacity={.56} wireframe/>
     </mesh>
-    <PillarHatching/>
+    <PillarHatching cell={cell}/>
   </group>;
 }
 
-function PillarHatching(){
+function PillarHatching({cell}:{cell:PillarCell}){
   const lines=useMemo(()=>{
     const p:number[]=[];const slope=1.25;const eps=.012;
-    for(let base=CELL.z0-1.8;base<CELL.z1;base+=.22){
-      const xa=Math.max(CELL.x0,CELL.x0+(CELL.z0-base)/slope),xb=Math.min(CELL.x1,CELL.x0+(CELL.z1-base)/slope);
-      if(xa<xb){const za=base+slope*(xa-CELL.x0),zb=base+slope*(xb-CELL.x0);p.push(xa,CELL.y0-eps,za,xb,CELL.y0-eps,zb,xa,CELL.y1+eps,za,xb,CELL.y1+eps,zb)}
-      const ya=Math.max(CELL.y0,CELL.y0+(CELL.z0-base)/slope),yb=Math.min(CELL.y1,CELL.y0+(CELL.z1-base)/slope);
-      if(ya<yb){const za=base+slope*(ya-CELL.y0),zb=base+slope*(yb-CELL.y0);p.push(CELL.x0-eps,ya,za,CELL.x0-eps,yb,zb,CELL.x1+eps,ya,za,CELL.x1+eps,yb,zb)}
+    for(let base=Z_MIN-1.8;base<Z_MAX;base+=.22){
+      const xa=Math.max(cell.x0,cell.x0+(Z_MIN-base)/slope),xb=Math.min(cell.x1,cell.x0+(Z_MAX-base)/slope);
+      if(xa<xb){const za=base+slope*(xa-cell.x0),zb=base+slope*(xb-cell.x0);p.push(xa,cell.y0-eps,za,xb,cell.y0-eps,zb,xa,cell.y1+eps,za,xb,cell.y1+eps,zb)}
+      const ya=Math.max(cell.y0,cell.y0+(Z_MIN-base)/slope),yb=Math.min(cell.y1,cell.y0+(Z_MAX-base)/slope);
+      if(ya<yb){const za=base+slope*(ya-cell.y0),zb=base+slope*(yb-cell.y0);p.push(cell.x0-eps,ya,za,cell.x0-eps,yb,zb,cell.x1+eps,ya,za,cell.x1+eps,yb,zb)}
     }
     return new Float32Array(p);
-  },[]);
+  },[cell]);
   return <lineSegments renderOrder={4}><bufferGeometry><bufferAttribute attach="attributes-position" args={[lines,3]}/></bufferGeometry><lineBasicMaterial color="#78abc1" transparent opacity={.46} depthWrite={false}/></lineSegments>;
+}
+
+function ManyPillarsLayer({cells,selectedKey,muted=false,onSelect}:{cells:PillarCell[];selectedKey:string;muted?:boolean;onSelect:(key:string)=>void}){
+  const mesh=useRef<THREE.InstancedMesh>(null);
+  const progress=useRef(.02);
+  const dummy=useMemo(()=>new THREE.Object3D(),[]);
+  useEffect(()=>{progress.current=.02},[cells]);
+  useEffect(()=>{
+    const target=mesh.current;if(!target)return;
+    cells.forEach((cell,index)=>{const density=Math.min(1,Math.log2(cell.records.length+1)/6);target.setColorAt(index,cell.key===selectedKey?new THREE.Color("#65a8c6"):new THREE.Color().setHSL(.55,.38,.78-density*.17))});
+    if(target.instanceColor)target.instanceColor.needsUpdate=true;
+  },[cells,selectedKey]);
+  useFrame(()=>{
+    const target=mesh.current;if(!target)return;
+    if(progress.current>.999)return;
+    progress.current=THREE.MathUtils.lerp(progress.current,1,.085);
+    cells.forEach((cell,index)=>{
+      dummy.position.set(cell.center[0],cell.center[1],Z_MIN+(Z_MAX-Z_MIN)*progress.current/2);
+      dummy.scale.set(PILLAR_SIZE*.91,PILLAR_SIZE*.91,(Z_MAX-Z_MIN)*progress.current);
+      dummy.updateMatrix();target.setMatrixAt(index,dummy.matrix);
+    });
+    target.instanceMatrix.needsUpdate=true;
+  });
+  return <instancedMesh ref={mesh} args={[undefined,undefined,cells.length]} onPointerDown={e=>{if(typeof e.instanceId==="number")onSelect(cells[e.instanceId].key)}} onPointerOver={e=>{e.stopPropagation();document.body.style.cursor="pointer"}} onPointerOut={()=>{document.body.style.cursor="default"}}>
+    <boxGeometry args={[1,1,1]}/><meshPhysicalMaterial vertexColors color="#b9ddeb" transparent opacity={muted?.045:.105} transmission={.24} thickness={.7} roughness={.22} clearcoat={.75} clearcoatRoughness={.24} depthWrite={false} side={THREE.DoubleSide}/>
+  </instancedMesh>;
 }
 
 function CenterMarker({position,kind}:{position:[number,number,number];kind:"fixed"|"mean"}){
@@ -197,47 +222,70 @@ function ClickableBev({points,size,stage,selection,onSelect}:{points:Point[];siz
 }
 
 function SceneContent({data,boxData,step,selection,onSelection,onMetrics}:{data:DemoData;boxData:BoxData;step:number;selection:SceneSelection|null;onSelection:(selection:SceneSelection|null)=>void;onMetrics:(m:PillarMetrics)=>void}){
-  const partitions=useMemo(()=>{
-    const inside:{point:Point;index:number}[]=[],outside:{point:Point;index:number}[]=[];
-    data.points.forEach((point,index)=>{const [x,y,z]=point;(x>=CELL.x0&&x<CELL.x1&&y>=CELL.y0&&y<CELL.y1&&z>=CELL.z0&&z<CELL.z1?inside:outside).push({point,index})});
-    return {inside,outside};
+  const cells=useMemo<PillarCell[]>(()=>{
+    const grouped=new Map<string,PointRecord[]>();
+    data.points.forEach((point,index)=>{
+      const [x,y,z]=point;if(x< -GRID_EXTENT||x>=GRID_EXTENT||y< -GRID_EXTENT||y>=GRID_EXTENT||z<Z_MIN||z>=Z_MAX)return;
+      const ix=Math.floor((x+GRID_EXTENT)/PILLAR_SIZE),iy=Math.floor((y+GRID_EXTENT)/PILLAR_SIZE),key=`${ix},${iy}`;
+      const records=grouped.get(key)??[];records.push({point,index});grouped.set(key,records);
+    });
+    return [...grouped.entries()].map(([key,records])=>{
+      const [ix,iy]=key.split(",").map(Number),x0=-GRID_EXTENT+ix*PILLAR_SIZE,y0=-GRID_EXTENT+iy*PILLAR_SIZE;
+      const mean=[0,1,2].map(axis=>records.reduce((sum,record)=>sum+record.point[axis],0)/records.length) as [number,number,number];
+      const center:[number,number,number]=[x0+PILLAR_SIZE/2,y0+PILLAR_SIZE/2,(Z_MIN+Z_MAX)/2];
+      return {key,ix,iy,x0,x1:x0+PILLAR_SIZE,y0,y1:y0+PILLAR_SIZE,center,mean,records};
+    }).sort((a,b)=>a.iy-b.iy||a.ix-b.ix);
   },[data]);
-  const inside=useMemo(()=>partitions.inside.map(item=>item.point),[partitions]);
-  const outside=useMemo(()=>partitions.outside.map(item=>item.point),[partitions]);
-  const mean=useMemo<[number,number,number]>(()=>[0,1,2].map(k=>inside.reduce((s,p)=>s+p[k],0)/inside.length) as [number,number,number],[inside]);
+  const [selectedKey,setSelectedKey]=useState(DEFAULT_PILLAR_KEY);
+  const selectedCell=cells.find(cell=>cell.key===selectedKey)??cells[0];
   const [selectedIndex,setSelectedIndex]=useState(0);
+  useEffect(()=>{setSelectedIndex(0)},[selectedKey]);
+  const insideRecords=selectedCell.records;
+  const insideIndices=useMemo(()=>new Set(insideRecords.map(record=>record.index)),[insideRecords]);
+  const outsideRecords=useMemo(()=>data.points.map((point,index)=>({point,index})).filter(record=>!insideIndices.has(record.index)),[data,insideIndices]);
+  const inside=useMemo(()=>insideRecords.map(record=>record.point),[insideRecords]);
+  const outside=useMemo(()=>outsideRecords.map(record=>record.point),[outsideRecords]);
   const selected=inside[selectedIndex]??inside[0];
-  useEffect(()=>{if(selected)onMetrics({count:inside.length,center:FIXED_CENTER,mean,selected})},[inside,mean,selected,onMetrics]);
-  const outsidePositions=useMemo(()=>new Float32Array(outside.flatMap(p=>p.slice(0,3))),[outside]);
-  const insidePositions=useMemo(()=>new Float32Array(inside.flatMap(p=>p.slice(0,3))),[inside]);
-  const choosePoint=(item:{point:Point;index:number},insideTeachingPillar:boolean,e:ThreeEvent<PointerEvent>)=>{
+  const maxPoints=useMemo(()=>Math.max(...cells.map(cell=>cell.records.length)),[cells]);
+  useEffect(()=>{if(selected)onMetrics({count:inside.length,center:selectedCell.center,mean:selectedCell.mean,selected,cellIndex:[selectedCell.iy,selectedCell.ix],nonEmptyPillars:cells.length,maxPoints})},[inside,selectedCell,selected,maxPoints,cells.length,onMetrics]);
+  const outsidePositions=useMemo(()=>new Float32Array(outside.flatMap(point=>point.slice(0,3))),[outside]);
+  const insidePositions=useMemo(()=>new Float32Array(inside.flatMap(point=>point.slice(0,3))),[inside]);
+  const choosePoint=(item:PointRecord,insideTeachingPillar:boolean,e:ThreeEvent<PointerEvent>)=>{
     e.stopPropagation();const [x,y,z]=item.point;
-    onSelection({kind:"point",index:item.index,point:item.point,range:Math.hypot(x,y,z),cell:[Math.floor((y+24)/1.5),Math.floor((x+24)/1.5)],insideTeachingPillar});
+    onSelection({kind:"point",index:item.index,point:item.point,range:Math.hypot(x,y,z),cell:[Math.floor((y+GRID_EXTENT)/PILLAR_SIZE),Math.floor((x+GRID_EXTENT)/PILLAR_SIZE)],insideTeachingPillar});
   };
+  const choosePillar=(key:string)=>{setSelectedKey(key);onSelection(null)};
+  const focus=useMemo<[number,number,number]>(()=>[selectedCell.center[0],selectedCell.center[1],selectedCell.mean[2]],[selectedCell]);
+  const teaching=step===2||step===3;
+  const fixedReference:[number,number,number]=[selectedCell.center[0],selectedCell.center[1],selected[2]];
   return <>
-    <StoryCamera step={step}/>
+    <StoryCamera step={step} focus={focus}/>
     {step===1&&<GroundTruthLayer boxes={boxData.boxes} selection={selection} onSelect={onSelection}/>}
-    <points onPointerDown={e=>{if(typeof e.index==="number")choosePoint(partitions.outside[e.index],false,e)}}>
+    <points onPointerDown={e=>{if(typeof e.index==="number")choosePoint(outsideRecords[e.index],false,e)}}>
       <bufferGeometry><bufferAttribute attach="attributes-position" args={[outsidePositions,3]}/></bufferGeometry>
-      <pointsMaterial color="#111111" size={step>=2?.10:.16} transparent opacity={step>=2?.15:.86} sizeAttenuation/>
+      <pointsMaterial color="#111111" size={teaching?.105:step>=4?.1:.16} transparent opacity={teaching?(step===2?.34:.13):step>=4?.15:.86} sizeAttenuation/>
     </points>
-    <points onPointerDown={(e:ThreeEvent<PointerEvent>)=>{if(typeof e.index==="number"){setSelectedIndex(e.index);choosePoint(partitions.inside[e.index],true,e)}}}>
+    <points onPointerDown={(e:ThreeEvent<PointerEvent>)=>{if(typeof e.index==="number"){setSelectedIndex(e.index);choosePoint(insideRecords[e.index],true,e)}}}>
       <bufferGeometry><bufferAttribute attach="attributes-position" args={[insidePositions,3]}/></bufferGeometry>
-      <pointsMaterial color="#050505" size={step>=2?.24:.17} transparent opacity={1} sizeAttenuation/>
+      <pointsMaterial color="#050505" size={teaching?.25:.17} transparent opacity={1} sizeAttenuation/>
     </points>
     {selection?.kind==="point"&&<group position={[selection.point[0],selection.point[1],selection.point[2]]} renderOrder={8}><mesh><sphereGeometry args={[.16,18,18]}/><meshBasicMaterial color="#e67818"/></mesh><mesh rotation={[Math.PI/2,0,0]}><ringGeometry args={[.24,.29,30]}/><meshBasicMaterial color="#e67818" transparent opacity={.8} side={THREE.DoubleSide}/></mesh></group>}
-    {step===1&&<><MetricGrid/><ClickableBev points={data.points} size={1.5} stage="quantization grid" selection={selection} onSelect={onSelection}/></>}
-    {step>=2&&step<=7&&<><MetricGrid local/><Pillar key={step} step={step}/></>}
-    {step>=3&&step<=7&&<CenterMarker position={FIXED_CENTER} kind="fixed"/>}
-    {step>=4&&step<=7&&<CenterMarker position={mean} kind="mean"/>}
-    {step>=5&&step<=7&&selected&&<><mesh position={[selected[0],selected[1],selected[2]]}><sphereGeometry args={[.15,20,20]}/><meshBasicMaterial color="#050505"/></mesh><VectorLine from={[selected[0],selected[1],selected[2]]} to={FIXED_CENTER} color="#65a8c6"/><VectorLine from={[selected[0],selected[1],selected[2]]} to={mean} color="#111111"/></>}
-    {step===8&&<><PseudoImageLayer points={data.points}/><ClickableBev points={data.points} size={3} stage="pseudo-image" selection={selection} onSelect={onSelection}/></>}
-    {step===9&&<BackboneLayer/>}
-    {step===10&&<AnchorLayer/>}
-    {step===11&&<><AnchorLayer/><MatchingLayer mode="match"/></>}
-    {step===12&&<MatchingLayer mode="loss"/>}
-    {step===13&&<MatchingLayer mode="nms"/>}
-    {step===14&&<MatchingLayer mode="final"/>}
+    {step===1&&<><MetricGrid/><ClickableBev points={data.points} size={PILLAR_SIZE} stage="quantization grid" selection={selection} onSelect={onSelection}/></>}
+    {teaching&&<>
+      <ManyPillarsLayer cells={cells} selectedKey={selectedCell.key} muted={step===3} onSelect={choosePillar}/>
+      <MetricGrid local={step===3} center={selectedCell.center}/><SelectedPillar key={`${step}-${selectedCell.key}`} cell={selectedCell}/>
+      <VectorLine from={[selectedCell.center[0],selectedCell.center[1],Z_MIN]} to={[selectedCell.center[0],selectedCell.center[1],Z_MAX]} color="#65a8c6"/>
+      <CenterMarker position={fixedReference} kind="fixed"/><CenterMarker position={selectedCell.mean} kind="mean"/>
+      <mesh position={[selected[0],selected[1],selected[2]]}><sphereGeometry args={[.15,20,20]}/><meshBasicMaterial color="#050505"/></mesh>
+      <VectorLine from={[selected[0],selected[1],selected[2]]} to={fixedReference} color="#65a8c6"/><VectorLine from={[selected[0],selected[1],selected[2]]} to={selectedCell.mean} color="#111111"/>
+    </>}
+    {step===4&&<><PseudoImageLayer points={data.points}/><ClickableBev points={data.points} size={3} stage="pseudo-image" selection={selection} onSelect={onSelection}/></>}
+    {step===5&&<BackboneLayer/>}
+    {step===6&&<AnchorLayer/>}
+    {step===7&&<><AnchorLayer/><MatchingLayer mode="match"/></>}
+    {step===8&&<MatchingLayer mode="loss"/>}
+    {step===9&&<MatchingLayer mode="nms"/>}
+    {step===10&&<MatchingLayer mode="final"/>}
   </>;
 }
 

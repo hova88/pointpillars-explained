@@ -30,6 +30,19 @@ test("teaching pillar keeps the fixed cell center distinct from its point mean",
   assert.notDeepEqual(mean,center);
 });
 
+test("the displayed nuScenes frame produces the real pillar population",()=>{
+  const demo=JSON.parse(fs.readFileSync(new URL("../public/data/nuscenes-lidar-demo.json",import.meta.url),"utf8"));
+  const cells=new Map();
+  for(const [x,y,z] of demo.points){
+    if(x< -24||x>=24||y< -24||y>=24||z< -2.5||z>=3.5)continue;
+    const key=`${Math.floor((x+24)/1.5)},${Math.floor((y+24)/1.5)}`;
+    cells.set(key,(cells.get(key)??0)+1);
+  }
+  assert.equal(cells.size,406);
+  assert.equal(Math.max(...cells.values()),927);
+  assert.equal([...cells.values()].filter(count=>count>100).length,5);
+});
+
 test("max pooling ignores point order",()=>{
   const x=[[1,7,2],[4,2,3],[0,5,9]];
   assert.deepEqual(maxPool(x),maxPool([...x].reverse()));
