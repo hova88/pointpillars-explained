@@ -1,0 +1,29 @@
+{
+  "sampleToken": "ca9a282c9e77460f8360f564131a8af5",
+  "sampleDataToken": "9d9bf11fb0e144c8b446d54a8a00184f",
+  "coordinateFrame": "LIDAR_TOP: +x forward, +y left, +z up",
+  "dimensionOrder": "length, width, height",
+  "selection": "All annotated vehicles within 42 m with at least 4 LiDAR points, plus the 15 highest-return non-vehicle obstacles under the same bounds.",
+  "boxes": [
+    {"category":"vehicle.car","center":[9.148,-19.542,-1.645],"dimensions":[4.32,1.837,1.631],"yaw":-1.6951,"numLidarPoints":45,"token":"63b89fe17f3e41ecbe28337e0e35db8e"},
+    {"category":"vehicle.car","center":[5.979,35.009,0.044],"dimensions":[4.01,1.708,1.631],"yaw":1.5019,"numLidarPoints":4,"token":"16140fbf143d4e26a4a7613cbd3aa0e8"},
+    {"category":"vehicle.truck","center":[-4.499,15.253,0.396],"dimensions":[10.201,2.877,3.595],"yaw":1.5952,"numLidarPoints":495,"token":"83d881a6b3d94ef3a3bc3b585cc514f8"},
+    {"category":"vehicle.car","center":[3.301,40.34,0.146],"dimensions":[4.115,1.847,1.526],"yaw":1.5028,"numLidarPoints":5,"token":"cda0a9085607438c9b1ea87f4360dd64"},
+    {"category":"vehicle.car","center":[-2.053,38.026,0.27],"dimensions":[4.727,1.907,1.957],"yaw":1.5805,"numLidarPoints":15,"token":"49f76277d07541c5a584aa14c9d28754"},
+    {"category":"movable_object.barrier","center":[6.008,-9.196,-1.512],"dimensions":[0.555,1.91,1.055],"yaw":3.0867,"numLidarPoints":77,"token":"a0cac1c12246451684116067ae2611f6"},
+    {"category":"movable_object.barrier","center":[6.986,11.421,-0.944],"dimensions":[0.633,2.073,1.078],"yaw":3.1377,"numLidarPoints":50,"token":"f1ae3f713ba946069fa084a6b8626fbf"},
+    {"category":"movable_object.barrier","center":[8.228,11.616,-0.992],"dimensions":[0.716,2.126,1.031],"yaw":-3.1105,"numLidarPoints":32,"token":"6c804cb7d78943b195045082c5c2d7fa"},
+    {"category":"movable_object.barrier","center":[7.036,13.455,-0.932],"dimensions":[0.651,1.99,1.107],"yaw":3.132,"numLidarPoints":27,"token":"2bfcc693ae9946daba1d9f2724478fd4"},
+    {"category":"movable_object.barrier","center":[6.622,-9.238,-1.545],"dimensions":[0.579,1.908,1.051],"yaw":3.0808,"numLidarPoints":20,"token":"ca0f85b4f0d44beb9b7ff87b1ab37ff5"},
+    {"category":"movable_object.barrier","center":[7.091,15.519,-0.849],"dimensions":[0.716,1.969,1.092],"yaw":3.0981,"numLidarPoints":19,"token":"cc636a58e27e446cbdd030c14f3718fd"},
+    {"category":"human.pedestrian.adult","center":[-1.648,-15.646,-1.409],"dimensions":[0.873,0.913,1.697],"yaw":-0.0712,"numLidarPoints":14,"token":"791d1ca7e228433fa50b01778c32449a"},
+    {"category":"movable_object.barrier","center":[7.198,17.524,-0.768],"dimensions":[0.72,1.964,1.104],"yaw":3.0684,"numLidarPoints":13,"token":"bc638d33e89848f58c0b3ccf3900c8bb"},
+    {"category":"human.pedestrian.adult","center":[-2.518,16.856,-0.473],"dimensions":[0.618,0.634,1.752],"yaw":-2.8373,"numLidarPoints":13,"token":"05de82bdb8484623906bb9d97ae87542"},
+    {"category":"human.pedestrian.adult","center":[-3.843,-13.619,-1.138],"dimensions":[1.04,0.942,1.937],"yaw":0.0509,"numLidarPoints":12,"token":"563a3f547bd64a2f9969278c5ef447fd"},
+    {"category":"movable_object.pushable_pullable","center":[-2.808,16.743,-0.69],"dimensions":[0.835,0.599,1.265],"yaw":1.6033,"numLidarPoints":10,"token":"bfedb0d85e164b7697d1e72dd971fb72"},
+    {"category":"human.pedestrian.adult","center":[-1.815,-13.568,-1.316],"dimensions":[0.937,0.971,1.568],"yaw":0.0684,"numLidarPoints":10,"token":"a834fb0389a8453c810c3330e3503e16"},
+    {"category":"movable_object.barrier","center":[7.349,19.536,-0.72],"dimensions":[0.731,2.037,1.1],"yaw":3.0608,"numLidarPoints":9,"token":"adf1594def9e4722b952fea33b307937"},
+    {"category":"human.pedestrian.adult","center":[-21.768,-0.458,-0.412],"dimensions":[0.903,0.872,1.719],"yaw":0.0078,"numLidarPoints":8,"token":"179b8b54ee74425893387ebc09ee133d"},
+    {"category":"movable_object.trafficcone","center":[6.896,9.484,-1.123],"dimensions":[0.461,0.476,0.72],"yaw":2.318,"numLidarPoints":8,"token":"ffeafb90ecd5429cba23d0be9a5b54ee"}
+  ]
+}

@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { PillarScene, type PillarMetrics } from "./PillarScene";
 
 const steps=[
-  {title:"A point cloud",kicker:"Start with measurements",line:"Each black mark is one unordered LiDAR return: (x, y, z, reflectance).",formula:"P = {p₁, …, pₙ}",note:"No rows, columns, or semantic order—only measured locations."},
+  {title:"A point cloud",kicker:"Start with measurements",line:"Each black mark is one unordered LiDAR return. Red boxes place ego and annotated obstacles in that same sensor frame.",formula:"pᵢ = (xᵢ, yᵢ, zᵢ, rᵢ)",note:"The obstacle boxes are nuScenes annotations. The ego envelope is teaching geometry around LIDAR_TOP."},
   {title:"Quantize XY",kicker:"Choose a spatial address",line:"Floor division assigns every accepted point to exactly one BEV cell.",formula:"iₓ = ⌊(x − xₘᵢₙ) / vₓ⌋",note:"The floor matters: the upper grid boundary stays half-open."},
   {title:"Form a pillar",kicker:"Keep Z continuous",line:"A pillar is one XY cell extended through the full detection height. Its black points share an address—not a height bin.",formula:"pillar[iᵧ,iₓ] = {pᵢ}",note:"38 returns fall inside this real 1.5 m × 1.5 m teaching cell."},
   {title:"Pillar center",kicker:"A fixed geometric reference",line:"The cell center comes from grid boundaries. It does not move when points move inside the pillar.",formula:"xₚ = xₘᵢₙ + (iₓ + ½)vₓ",note:"Grid-defined. Fixed. Do not confuse it with the observed-point mean."},
@@ -70,7 +70,7 @@ export default function PillarExplainer(){
       {step===6&&<StackLedger count={metrics?.count??38}/>}
       {step===7&&<EncodeLedger/>}
       <aside className="pp-margin-note" key={`n${step}`}><b>{step+1}.</b><p>{s.note}</p><i/></aside>
-      <div className="pp-ego-key"><i/>EGO ROADSTER · LIDAR_TOP AT ORIGIN</div>
+      {step===0&&<div className="pp-box-key"><i/>RED = 3D BOX · EGO AT LIDAR_TOP ORIGIN</div>}
       <div className="pp-gesture">DRAG TO ROTATE · SCROLL TO ZOOM · CLICK A PILLAR POINT</div>
     </section>
     <footer className="pp-controls">

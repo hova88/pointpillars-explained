@@ -7,6 +7,8 @@ import * as THREE from "three";
 
 type Point=[number,number,number,number];
 type DemoData={points:Point[];originalPointCount:number};
+type BoxAnnotation={category:string;center:[number,number,number];dimensions:[number,number,number];yaw:number;numLidarPoints:number;token:string};
+type BoxData={boxes:BoxAnnotation[]};
 export type PillarMetrics={count:number;center:[number,number,number];mean:[number,number,number];selected:Point};
 
 const CELL={x0:-7.5,x1:-6,y0:-9,y1:-7.5,z0:-2.5,z1:3.5};
@@ -134,24 +136,27 @@ function MatchingLayer({mode}:{mode:"match"|"loss"|"nms"|"final"}){
   })}{mode==="loss"&&[.6,1.2,2,3.1].map((h,i)=><mesh key={`l${i}`} position={[-1+i*.7,-8,-2.5+h/2]}><boxGeometry args={[.42,.42,h]}/><meshBasicMaterial color={i<2?"#b9ddeb":"#65a8c6"} transparent opacity={.72}/></mesh>)}</group>;
 }
 
-function EgoRoadster(){
-  const glass=<meshPhysicalMaterial color="#9dc9db" transparent opacity={.55} roughness={.12} metalness={.08} transmission={.3} depthWrite={false}/>;
-  return <group scale={[1.08,1.08,1.08]}>
-    <mesh position={[0,0,-1.05]}><boxGeometry args={[4.35,1.86,.5]}/><meshPhysicalMaterial color="#eeeadd" roughness={.38} metalness={.08}/></mesh>
-    <mesh position={[1.32,0,-.78]} rotation={[0,-.05,0]}><boxGeometry args={[1.55,1.76,.24]}/><meshPhysicalMaterial color="#eeeadd" roughness={.38} metalness={.08}/></mesh>
-    <mesh position={[-1.48,0,-.78]}><boxGeometry args={[1.05,1.78,.3]}/><meshPhysicalMaterial color="#eeeadd" roughness={.38} metalness={.08}/></mesh>
-    <mesh position={[-.25,0,-.51]} rotation={[0,.025,0]}><boxGeometry args={[1.85,1.58,.58]}/>{glass}</mesh>
-    <mesh position={[-.25,0,-.51]} rotation={[0,.025,0]}><boxGeometry args={[1.85,1.58,.58]}/><meshBasicMaterial color="#27353b" transparent opacity={.5} wireframe/></mesh>
-    <mesh position={[0,0,-1.05]}><boxGeometry args={[4.35,1.86,.5]}/><meshBasicMaterial color="#272722" transparent opacity={.7} wireframe/></mesh>
-    {([-1.42,1.42] as const).flatMap(x=>[-1,1].map(side=><mesh key={`${x}-${side}`} position={[x,side*.99,-1.29]} rotation={[Math.PI/2,0,0]}><cylinderGeometry args={[.36,.36,.2,24]}/><meshStandardMaterial color="#171714" roughness={.85}/></mesh>))}
-    {[-.58,.58].map(y=><mesh key={`h${y}`} position={[2.2,y,-.84]}><boxGeometry args={[.035,.35,.13]}/><meshBasicMaterial color="#f0c76a"/></mesh>)}
-    {[-.58,.58].map(y=><mesh key={`t${y}`} position={[-2.2,y,-.84]}><boxGeometry args={[.035,.32,.12]}/><meshBasicMaterial color="#b74438"/></mesh>)}
-    <mesh position={[0,0,-.08]} rotation={[Math.PI/2,0,0]}><cylinderGeometry args={[.055,.07,.22,16]}/><meshStandardMaterial color="#262622"/></mesh>
-    <mesh position={[0,0,.055]}><sphereGeometry args={[.11,18,12]}/><meshPhysicalMaterial color="#9dc9db" roughness={.18} transmission={.18}/></mesh>
+function RedOutlineBox({center,dimensions,yaw,ego=false}:{center:[number,number,number];dimensions:[number,number,number];yaw:number;ego?:boolean}){
+  const geometry=useMemo(()=>{
+    const solid=new THREE.BoxGeometry(...dimensions);
+    const edges=new THREE.EdgesGeometry(solid);
+    solid.dispose();
+    return edges;
+  },[dimensions]);
+  useEffect(()=>()=>geometry.dispose(),[geometry]);
+  return <lineSegments position={center} rotation={[0,0,yaw]} geometry={geometry} renderOrder={6}>
+    <lineBasicMaterial color="#d13a32" transparent opacity={ego?1:.82} depthWrite={false}/>
+  </lineSegments>;
+}
+
+function FirstChapterBoxes({boxes}:{boxes:BoxAnnotation[]}){
+  return <group>
+    <RedOutlineBox center={[-.15,0,-1]} dimensions={[4.6,1.95,1.5]} yaw={0} ego/>
+    {boxes.map(box=><RedOutlineBox key={box.token} center={box.center} dimensions={box.dimensions} yaw={box.yaw}/>)}
   </group>;
 }
 
-function SceneContent({data,step,onMetrics}:{data:DemoData;step:number;onMetrics:(m:PillarMetrics)=>void}){
+function SceneContent({data,boxData,step,onMetrics}:{data:DemoData;boxData:BoxData;step:number;onMetrics:(m:PillarMetrics)=>void}){
   const inside=useMemo(()=>data.points.filter(([x,y,z])=>x>=CELL.x0&&x<CELL.x1&&y>=CELL.y0&&y<CELL.y1&&z>=CELL.z0&&z<CELL.z1),[data]);
   const outside=useMemo(()=>data.points.filter(([x,y,z])=>!(x>=CELL.x0&&x<CELL.x1&&y>=CELL.y0&&y<CELL.y1&&z>=CELL.z0&&z<CELL.z1)),[data]);
   const mean=useMemo<[number,number,number]>(()=>[0,1,2].map(k=>inside.reduce((s,p)=>s+p[k],0)/inside.length) as [number,number,number],[inside]);
@@ -162,7 +167,7 @@ function SceneContent({data,step,onMetrics}:{data:DemoData;step:number;onMetrics
   const insidePositions=useMemo(()=>new Float32Array(inside.flatMap(p=>p.slice(0,3))),[inside]);
   return <>
     <StoryCamera step={step}/>
-    <EgoRoadster/>
+    {step===0&&<FirstChapterBoxes boxes={boxData.boxes}/>}
     <points>
       <bufferGeometry><bufferAttribute attach="attributes-position" args={[outsidePositions,3]}/></bufferGeometry>
       <pointsMaterial color="#111111" size={step>=2?.10:.16} transparent opacity={step>=2?.15:.86} sizeAttenuation/>
@@ -188,11 +193,18 @@ function SceneContent({data,step,onMetrics}:{data:DemoData;step:number;onMetrics
 
 export function PillarScene({step,onMetrics}:{step:number;onMetrics:(m:PillarMetrics)=>void}){
   const [data,setData]=useState<DemoData|null>(null);
-  useEffect(()=>{const base=process.env.NODE_ENV==="production"?"/pointpillars-explained":"";fetch(`${base}/data/nuscenes-lidar-demo.json`).then(r=>r.json()).then(setData)},[]);
+  const [boxData,setBoxData]=useState<BoxData|null>(null);
+  useEffect(()=>{
+    const base=process.env.NODE_ENV==="production"?"/pointpillars-explained":"";
+    Promise.all([
+      fetch(`${base}/data/nuscenes-lidar-demo.json`).then(r=>r.json()),
+      fetch(`${base}/data/nuscenes-boxes.json`).then(r=>r.json())
+    ]).then(([cloud,boxes])=>{setData(cloud);setBoxData(boxes)});
+  },[]);
   return <div className="pp-canvas" aria-label="Interactive PointPillars geometry">
-    {data?<Canvas camera={{position:[31,27,25],fov:44,near:.05,far:200}} dpr={[1,1.7]} gl={{antialias:true}}>
+    {data&&boxData?<Canvas camera={{position:[31,27,25],fov:44,near:.05,far:200}} dpr={[1,1.7]} gl={{antialias:true}}>
       <color attach="background" args={[PAPER]}/><ambientLight intensity={2.2}/><directionalLight position={[8,9,14]} intensity={2.8}/>
-      <SceneContent data={data} step={step} onMetrics={onMetrics}/>
+      <SceneContent data={data} boxData={boxData} step={step} onMetrics={onMetrics}/>
     </Canvas>:<div className="pp-loading">Loading the LiDAR frame</div>}
   </div>;
 }
