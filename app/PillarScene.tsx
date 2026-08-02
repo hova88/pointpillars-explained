@@ -12,6 +12,7 @@ type PillarCell={key:string;ix:number;iy:number;x0:number;x1:number;y0:number;y1
 type DemoData={points:Point[];originalPointCount:number};
 type BoxAnnotation={category:string;center:[number,number,number];dimensions:[number,number,number];yaw:number;numLidarPoints:number;numRadarPoints:number;token:string};
 type BoxData={boxes:BoxAnnotation[]};
+type TeachingPrediction={id:string;category:string;center:[number,number,number];dimensions:[number,number,number];yaw:number;score:number;gtToken:string;matchIou:number};
 export type PillarMetrics={count:number;center:[number,number,number];mean:[number,number,number];selected:Point;cellIndex:[number,number];nonEmptyPillars:number;maxPoints:number};
 type AnchorStatus="positive"|"ignore"|"negative";
 type TruckAnchor={id:string;center:[number,number,number];dimensions:[number,number,number];yaw:number;iou:number;status:AnchorStatus;residual:number[]};
@@ -26,6 +27,7 @@ export type DetectionMetrics={
 export type SceneSelection=
   |{kind:"point";index:number;point:Point;range:number;cell:[number,number];insideTeachingPillar:boolean}
   |{kind:"box";source:"nuScenes ground truth"|"teaching geometry";category:string;center:[number,number,number];dimensions:[number,number,number];yaw:number;numLidarPoints:number;numRadarPoints:number;token:string}
+  |{kind:"prediction";source:"deterministic teaching prediction";id:string;category:string;center:[number,number,number];dimensions:[number,number,number];yaw:number;score:number;gtToken:string;matchIou:number}
   |{kind:"cell";stage:"quantization grid"|"pseudo-image";index:[number,number];center:[number,number];bounds:[number,number,number,number];size:number;pointCount:number;active:boolean;pillarListIndex:number|null;featureChannels:number}
   |{kind:"anchor";chapter:"placement"|"matching";id:string;center:[number,number,number];dimensions:[number,number,number];yaw:number;iou:number;status:AnchorStatus;residual:number[]};
 
@@ -36,6 +38,7 @@ const EGO_BOX:BoxAnnotation={category:"ego vehicle envelope",center:[0,0,-1],dim
 const TRUCK_GT:BoxAnnotation={category:"vehicle.truck",center:[-4.499,15.253,.396],dimensions:[10.201,2.877,3.595],yaw:1.5952,numLidarPoints:495,numRadarPoints:13,token:"83d881a6b3d94ef3a3bc3b585cc514f8"};
 const TRUCK_TEMPLATE:[number,number,number]=[9.6,2.8,3.4];
 const POSITIVE_IOU=.55,NEGATIVE_IOU=.4,CENTERHEAD_CELL=.4;
+const FINAL_GT_TOKENS=["63b89fe17f3e41ecbe28337e0e35db8e","83d881a6b3d94ef3a3bc3b585cc514f8","791d1ca7e228433fa50b01778c32449a","05de82bdb8484623906bb9d97ae87542","f1ae3f713ba946069fa084a6b8626fbf","ffeafb90ecd5429cba23d0be9a5b54ee"];
 
 const boxForMath=(center:[number,number,number],dimensions:[number,number,number],yaw:number)=>({x:center[0],y:center[1],z:center[2],w:dimensions[1],l:dimensions[0],h:dimensions[2],yaw,score:1});
 
@@ -46,6 +49,24 @@ function buildTruckAnchors():TruckAnchor[]{
     anchors.push({id:`truck-${x}-${y}-${yaw===0?0:90}`,center,dimensions:TRUCK_TEMPLATE,yaw,iou,status:iou>=POSITIVE_IOU?"positive":iou>=NEGATIVE_IOU?"ignore":"negative",residual:encodeBox(gt,anchor)});
   }
   return anchors;
+}
+
+function buildTeachingPredictions(boxes:BoxAnnotation[]):TeachingPrediction[]{
+  const offsets:[[number,number,number],number,number,number][]= [
+    [[.16,-.11,.03],1.015,.018,.92],
+    [[-.11,.19,-.02],.985,-.014,.88],
+    [[.06,.04,.01],1.02,.025,.79],
+    [[-.09,-.06,0],.97,-.019,.74],
+    [[.12,-.08,.01],1.035,.012,.69],
+    [[-.03,.05,0],.96,-.021,.63],
+  ];
+  return FINAL_GT_TOKENS.flatMap((token,index)=>{
+    const gt=boxes.find(box=>box.token===token);if(!gt)return [];
+    const [delta,scale,yawDelta,score]=offsets[index];
+    const center:[number,number,number]=[gt.center[0]+delta[0],gt.center[1]+delta[1],gt.center[2]+delta[2]];
+    const dimensions=gt.dimensions.map(value=>value*scale) as [number,number,number],yaw=gt.yaw+yawDelta;
+    return [{id:`teaching-prediction-${index}`,category:gt.category,center,dimensions,yaw,score,gtToken:gt.token,matchIou:rotatedBoxIou2d(boxForMath(center,dimensions,yaw),boxForMath(gt.center,gt.dimensions,gt.yaw))}];
+  });
 }
 
 const VectorLine=({from,to,color,width=1}:{from:[number,number,number];to:[number,number,number];color:string;width?:number})=>{
@@ -68,7 +89,7 @@ function StoryCamera({step,focus,detail=false}:{step:number;focus:[number,number
     if(step===6)return detail?{position:look.clone().add(new THREE.Vector3(10,10,8)),look}:{position:new THREE.Vector3(25,35,34),look:new THREE.Vector3(-4.5,15,.4)};
     if(step===7)return {position:look.clone().add(new THREE.Vector3(11,10,8)),look};
     if(step===8)return {position:new THREE.Vector3(TRUCK_GT.center[0],TRUCK_GT.center[1],37),look:new THREE.Vector3(TRUCK_GT.center[0],TRUCK_GT.center[1],-2.15)};
-    return {position:new THREE.Vector3(25,21,20),look:new THREE.Vector3(-3,1,0)};
+    return {position:new THREE.Vector3(0,8,72),look:new THREE.Vector3(0,8,0)};
   },[step,focus]);
   useEffect(()=>{
     const orbit=new OrbitControls(camera,gl.domElement);
@@ -76,9 +97,17 @@ function StoryCamera({step,focus,detail=false}:{step:number;focus:[number,number
     controls.current=orbit;
     return()=>orbit.dispose();
   },[camera,gl]);
-  useEffect(()=>{transition.current=0},[step,focus]);
-  useFrame(()=>{
+  const finalElapsed=useRef(0);
+  useEffect(()=>{transition.current=0;finalElapsed.current=0},[step,focus]);
+  useFrame((_,delta)=>{
     const orbit=controls.current;
+    if(step===9){
+      finalElapsed.current+=delta;
+      const reveal=THREE.MathUtils.smoothstep((finalElapsed.current-2.1)/2.8,0,1);
+      const position=new THREE.Vector3(18,35,24).lerp(new THREE.Vector3(0,8,72),reveal);
+      const target=new THREE.Vector3(...TRUCK_GT.center).lerp(new THREE.Vector3(0,8,0),reveal);
+      camera.position.lerp(position,.065);orbit?.target.lerp(target,.065);camera.up.set(0,0,1);orbit?.update();return;
+    }
     if(transition.current<.995){
       camera.position.lerp(destination.position,.07);
       orbit?.target.lerp(destination.look,.07);
@@ -278,20 +307,7 @@ function BackboneLayer(){
   </group>;
 }
 
-function MatchingLayer({mode}:{mode:"nms"|"final"}){
-  const boxes=[
-    {p:[-6.7,-8.2,.5] as [number,number,number],s:[1.8,4.2,1.6] as [number,number,number],r:.15},
-    {p:[-6.3,-7.9,.5] as [number,number,number],s:[1.9,4.1,1.6] as [number,number,number],r:.09},
-    {p:[-3.5,10.5,.5] as [number,number,number],s:[1.8,4.2,1.6] as [number,number,number],r:-.2},
-  ];
-  return <group>{boxes.map((a,i)=>{
-    const suppressed=mode==="nms"&&i===1;const final=mode==="final"&&i===1;
-    if(final)return null;
-    return <group key={i} position={a.p} rotation={[0,0,a.r]}><mesh><boxGeometry args={a.s}/><meshBasicMaterial color={suppressed?"#b9b9b5":i===0?"#65a8c6":"#111111"} transparent opacity={suppressed?.18:.75} wireframe/></mesh></group>
-  })}</group>;
-}
-
-function JellyBox({box,ego=false,selected,onSelect}:{box:BoxAnnotation;ego?:boolean;selected:boolean;onSelect:(selection:SceneSelection)=>void}){
+function JellyBox({box,ego=false,selected,muted=false,onSelect}:{box:BoxAnnotation;ego?:boolean;selected:boolean;muted?:boolean;onSelect:(selection:SceneSelection)=>void}){
   const {center,dimensions,yaw}=box;
   const group=useRef<THREE.Group>(null);
   const geometry=useMemo(()=>{
@@ -306,18 +322,59 @@ function JellyBox({box,ego=false,selected,onSelect}:{box:BoxAnnotation;ego?:bool
   return <group ref={group} position={center} rotation={[0,0,yaw]} scale={[.84,.84,.06]} onPointerDown={choose} onPointerOver={e=>{e.stopPropagation();document.body.style.cursor="pointer"}} onPointerOut={()=>{document.body.style.cursor="default"}}>
     <mesh renderOrder={5}>
       <boxGeometry args={dimensions}/>
-      <meshPhysicalMaterial color={selected?"#ef8279":"#e96860"} transparent opacity={selected?.25:ego?.18:.14} transmission={.48} thickness={1.15} roughness={.12} metalness={0} clearcoat={1} clearcoatRoughness={.16} side={THREE.DoubleSide} depthWrite={false}/>
+      <meshPhysicalMaterial color={selected?"#ef8279":"#e96860"} transparent opacity={selected?.25:muted?.025:ego?.18:.14} transmission={.48} thickness={1.15} roughness={.12} metalness={0} clearcoat={1} clearcoatRoughness={.16} side={THREE.DoubleSide} depthWrite={false}/>
     </mesh>
     <lineSegments geometry={geometry} renderOrder={6}>
-      <lineBasicMaterial color="#c9332b" transparent opacity={selected?1:ego?.92:.72} depthWrite={false}/>
+      <lineBasicMaterial color="#c9332b" transparent opacity={selected?1:muted?.14:ego?.92:.72} depthWrite={false}/>
     </lineSegments>
   </group>;
 }
 
-function GroundTruthLayer({boxes,selection,onSelect}:{boxes:BoxAnnotation[];selection:SceneSelection|null;onSelect:(selection:SceneSelection)=>void}){
+function GroundTruthLayer({boxes,selection,onSelect,focusTokens}:{boxes:BoxAnnotation[];selection:SceneSelection|null;onSelect:(selection:SceneSelection)=>void;focusTokens?:string[]}){
   return <group>
-    <JellyBox box={EGO_BOX} ego selected={selection?.kind==="box"&&selection.token===EGO_BOX.token} onSelect={onSelect}/>
-    {boxes.map(box=><JellyBox key={box.token} box={box} selected={selection?.kind==="box"&&selection.token===box.token} onSelect={onSelect}/>)}
+    <JellyBox box={EGO_BOX} ego muted={Boolean(focusTokens)} selected={selection?.kind==="box"&&selection.token===EGO_BOX.token} onSelect={onSelect}/>
+    {boxes.map(box=><JellyBox key={box.token} box={box} muted={Boolean(focusTokens)&&!focusTokens?.includes(box.token)} selected={selection?.kind==="box"&&selection.token===box.token} onSelect={onSelect}/>)}
+  </group>;
+}
+
+function PredictionJellyBox({prediction,selected,onSelect}:{prediction:TeachingPrediction;selected:boolean;onSelect:(selection:SceneSelection)=>void}){
+  const group=useRef<THREE.Group>(null);
+  const hitDimensions=prediction.dimensions.map(value=>value*1.1) as [number,number,number];
+  const geometry=useMemo(()=>{const solid=new THREE.BoxGeometry(...prediction.dimensions),edges=new THREE.EdgesGeometry(solid);solid.dispose();return edges},[prediction.dimensions]);
+  useEffect(()=>()=>geometry.dispose(),[geometry]);
+  useFrame(()=>{if(group.current){group.current.scale.x=THREE.MathUtils.lerp(group.current.scale.x,1,.08);group.current.scale.y=THREE.MathUtils.lerp(group.current.scale.y,1,.08);group.current.scale.z=THREE.MathUtils.lerp(group.current.scale.z,1,.1)}});
+  const choose=(event:ThreeEvent<PointerEvent>)=>{event.stopPropagation();onSelect({kind:"prediction",source:"deterministic teaching prediction",...prediction})};
+  return <group ref={group} position={prediction.center} rotation={[0,0,prediction.yaw]} scale={[.82,.82,.04]} onPointerDown={choose} onPointerOver={event=>{event.stopPropagation();document.body.style.cursor="pointer"}} onPointerOut={()=>{document.body.style.cursor="default"}}>
+    <mesh><boxGeometry args={hitDimensions}/><meshBasicMaterial transparent opacity={0} colorWrite={false} depthWrite={false}/></mesh>
+    <mesh renderOrder={7}><boxGeometry args={prediction.dimensions}/><meshPhysicalMaterial color={selected?"#62b6d7":"#8cc8df"} transparent opacity={selected?.3:.18} transmission={.46} thickness={1.1} roughness={.1} clearcoat={1} side={THREE.DoubleSide} depthWrite={false}/></mesh>
+    <lineSegments geometry={geometry} renderOrder={8}><lineBasicMaterial color={selected?"#277d9f":"#4e99b9"} transparent opacity={selected?1:.88} depthWrite={false}/></lineSegments>
+  </group>;
+}
+
+function FinalPredictionLayer({boxes,selection,onSelect}:{boxes:BoxAnnotation[];selection:SceneSelection|null;onSelect:(selection:SceneSelection)=>void}){
+  const predictions=useMemo(()=>buildTeachingPredictions(boxes),[boxes]),truck=predictions.find(prediction=>prediction.gtToken===TRUCK_GT.token)??predictions[0];
+  const elapsed=useRef(0),[phase,setPhase]=useState(0);
+  useFrame((_,delta)=>{elapsed.current+=delta;const next=elapsed.current>3.15?2:elapsed.current>1.45?1:0;if(next!==phase)setPhase(next)});
+  const candidates=useMemo(()=>truck?[
+    {...truck,id:"candidate-0",score:.88},
+    {...truck,id:"candidate-1",center:[truck.center[0]+.24,truck.center[1]-.18,truck.center[2]] as [number,number,number],yaw:truck.yaw+.026,score:.71},
+    {...truck,id:"candidate-2",center:[truck.center[0]-.31,truck.center[1]+.14,truck.center[2]] as [number,number,number],yaw:truck.yaw-.034,score:.46},
+    {...truck,id:"candidate-3",center:[truck.center[0]+.55,truck.center[1]+.38,truck.center[2]] as [number,number,number],yaw:truck.yaw+.08,score:.24},
+  ]:[],[truck]);
+  if(!truck)return null;
+  return <group>
+    {phase<2&&<>
+      <TeachingJellyBox center={TRUCK_GT.center} dimensions={TRUCK_GT.dimensions} yaw={TRUCK_GT.yaw} color="#d4473f" opacity={phase===0?.07:.16}/>
+      {candidates.map((candidate,index)=>{
+        const filtered=index===3,suppressed=phase===1&&index>0,color=filtered||suppressed?"#aaa9a3":index===0?"#4e99b9":"#e67818";
+        return <TeachingJellyBox key={candidate.id} center={candidate.center} dimensions={candidate.dimensions} yaw={candidate.yaw} color={color} opacity={filtered?.035:suppressed?.045:index===0?.18:.1} selected={phase===1&&index===0}/>;
+      })}
+    </>}
+    {phase===2&&<>
+      <GroundTruthLayer boxes={boxes} selection={selection} onSelect={onSelect} focusTokens={FINAL_GT_TOKENS}/>
+      {predictions.map(prediction=><PredictionJellyBox key={prediction.id} prediction={prediction} selected={selection?.kind==="prediction"&&selection.id===prediction.id} onSelect={onSelect}/>) }
+      {predictions.map(prediction=>{const gt=boxes.find(box=>box.token===prediction.gtToken);return gt?<VectorLine key={`match-${prediction.id}`} from={prediction.center} to={gt.center} color="#873daa"/>:null})}
+    </>}
   </group>;
 }
 
@@ -394,7 +451,7 @@ function SceneContent({data,boxData,step,selection,onSelection,onMetrics,onDetec
     onSelection({kind:"point",index:item.index,point:item.point,range:Math.hypot(x,y,z),cell:[Math.floor((y+GRID_EXTENT)/PILLAR_SIZE),Math.floor((x+GRID_EXTENT)/PILLAR_SIZE)],insideTeachingPillar});
   };
   const choosePillar=(key:string)=>{setSelectedKey(key);onSelection(null)};
-  const focus=useMemo<[number,number,number]>(()=>step===8?TRUCK_GT.center:step===7?(selection?.kind==="anchor"?selection.center:TRUCK_GT.center):step===6&&selection?.kind==="anchor"?selection.center:[selectedCell.center[0],selectedCell.center[1],selectedCell.mean[2]],[step,selection,selectedCell]);
+  const focus=useMemo<[number,number,number]>(()=>step===8||step===9?TRUCK_GT.center:step===7?(selection?.kind==="anchor"?selection.center:TRUCK_GT.center):step===6&&selection?.kind==="anchor"?selection.center:[selectedCell.center[0],selectedCell.center[1],selectedCell.mean[2]],[step,selection,selectedCell]);
   const teaching=step===2||step===3;
   const fixedReference:[number,number,number]=[selectedCell.center[0],selectedCell.center[1],selected[2]];
   return <>
@@ -402,7 +459,7 @@ function SceneContent({data,boxData,step,selection,onSelection,onMetrics,onDetec
     {step===1&&<GroundTruthLayer boxes={boxData.boxes} selection={selection} onSelect={onSelection}/>}
     <points onPointerDown={step===4?undefined:e=>{if(typeof e.index==="number")choosePoint(outsideRecords[e.index],false,e)}}>
       <bufferGeometry><bufferAttribute attach="attributes-position" args={[outsidePositions,3]}/></bufferGeometry>
-      <pointsMaterial color="#111111" size={teaching?.105:step>=4?.1:.16} transparent opacity={teaching?(step===2?.34:.13):step>=4?.15:.86} sizeAttenuation/>
+      <pointsMaterial color="#111111" size={teaching?.105:step===9?.16:step>=4?.1:.16} transparent opacity={teaching?(step===2?.34:.13):step===9?.8:step>=4?.15:.86} sizeAttenuation/>
     </points>
     <points onPointerDown={step===4?undefined:(e:ThreeEvent<PointerEvent>)=>{if(typeof e.index==="number"){setSelectedIndex(e.index);choosePoint(insideRecords[e.index],true,e)}}}>
       <bufferGeometry><bufferAttribute attach="attributes-position" args={[insidePositions,3]}/></bufferGeometry>
@@ -423,8 +480,7 @@ function SceneContent({data,boxData,step,selection,onSelection,onMetrics,onDetec
     {step===6&&<TruckAnchorField anchors={truckAnchors} selection={selection} onSelect={onSelection}/>}
     {step===7&&<TruckAnchorField anchors={truckAnchors} selection={selection} onSelect={onSelection} matching/>}
     {step===8&&<CenterHeatmapLayer/>}
-    {step===9&&<MatchingLayer mode="nms"/>}
-    {step===10&&<MatchingLayer mode="final"/>}
+    {step===9&&<FinalPredictionLayer boxes={boxData.boxes} selection={selection} onSelect={onSelection}/>}
   </>;
 }
 

@@ -1,23 +1,18 @@
 # Visual coverage
 
-Every step transforms the same nuScenes point cloud instead of switching to a detached diagram.
+Every chapter transforms the same nuScenes point cloud instead of switching to a detached diagram.
 
-| Step | Core operation | Scene treatment |
+| Chapter | Core operation | Scene treatment |
 |---:|---|---|
-| 01 | Raw LiDAR points | black returns on white |
-| 02 | XY floor quantization | metric grid over the complete frame |
-| 03 | Point-to-pillar grouping | translucent blue cell; assigned points remain black |
-| 04 | Fixed pillar center | grid-derived blue cross and exact coordinates |
-| 05 | Point-set mean | data-derived black ring and exact mean |
-| 06 | Point decoration | selected point with both reference vectors |
-| 07 | Capacity, sampling, padding, and stacking | `(D,P,N)` tensor ledger |
-| 08 | Shared Linear–BN–ReLU and max pooling | `(D,P,N) → (C,P,N) → (C,P)` with max over `N` |
-| 09 | Scatter to pseudo-image | occupied BEV cells over the original frame |
-| 10 | 2D backbone and fusion | aligned translucent feature planes |
-| 11 | Anchor design | physical class-shaped box priors |
-| 12 | Ground-truth matching | overlapping target and anchor geometry |
-| 13 | Composite training loss | spatial hypotheses plus loss contributions |
-| 14 | NMS | retained and faded duplicate boxes |
-| 15 | Final predictions | remaining boxes over the original points |
+| 01 | Raw LiDAR returns | black measurements on white; every point is inspectable |
+| 02 | XY quantization and ground truth | metric grid plus official red nuScenes jelly boxes |
+| 03 | Complete pillar construction | all 406 occupied cells, one inspectable pillar, fixed center, point mean, decoration, capacity, and `(D,P,N)` stacking |
+| 04 | Pillar Feature Net | shared Linear–BN–ReLU and channel-wise max over the point axis |
+| 05 | Scatter to BEV | compact pillar row plus paired coordinate copied into an inspectable dense pseudo-image address |
+| 06 | 2D backbone and fusion | modular `B₁ → B₂ → B₃`, animated Conv2D flow, transposed convolutions, and 384-channel concatenation |
+| 07 | Truck anchor placement | readable truck-prior crop followed by detail focus |
+| 08 | Ground-truth matching and loss | positive/ignored/negative assignments, box residuals, classification, localization, and direction loss |
+| 09 | CenterHead branch | later anchor-free Gaussian center target and gathered attribute heads |
+| 10 | Decode, filter, NMS, and return | local duplicate resolution followed by a camera callback to Chapter 2; red official GT and blue deterministic teaching predictions remain separately inspectable |
 
-Pure-function tests cover grid boundaries, cluster-offset translation behavior, max-pooling permutation invariance, box coding, IoU, and NMS.
+Pure-function tests cover grid boundaries, cluster-offset translation behavior, max-pooling permutation invariance, scatter address reconstruction, backbone scale alignment, box encode/decode round trips, IoU, NMS, and CenterHead Gaussian construction.

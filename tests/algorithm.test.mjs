@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { boxIou2d, decoratePoint, encodeBox, gaussianRadius, gaussianValue, maxPool, nms, pillarIndex, rotatedBoxIou2d, scatterPillarFeatures } from "../lib/algorithm.mjs";
+import { boxIou2d, decodeBox, decoratePoint, encodeBox, gaussianRadius, gaussianValue, maxPool, nms, pillarIndex, rotatedBoxIou2d, scatterPillarFeatures } from "../lib/algorithm.mjs";
 
 test("pillar indexing uses half-open boundaries",()=>{
   assert.deepEqual(pillarIndex([0,0,0,0],[-1,-1,1,1],.5),[2,2]);
@@ -71,6 +71,14 @@ test("the three PointPillars backbone scales align before concatenation",()=>{
 test("box coding is zero for a matching anchor",()=>{
   const box={x:2,y:3,z:1,w:2,l:4,h:1.5,yaw:.2,score:1};
   assert.deepEqual(encodeBox(box,box),[0,0,0,0,0,0,0]);
+});
+
+test("box encoding and decoding are inverse operations",()=>{
+  const anchor={x:-4.5,y:15,z:.3,w:2.8,l:9.6,h:3.4,yaw:Math.PI/2,score:.88};
+  const box={x:-4.499,y:15.253,z:.396,w:2.877,l:10.201,h:3.595,yaw:1.5952,score:1};
+  const decoded=decodeBox(encodeBox(box,anchor),anchor);
+  for(const key of ["x","y","z","w","l","h","yaw"])assert.ok(Math.abs(decoded[key]-box[key])<1e-10);
+  assert.equal(decoded.score,anchor.score);
 });
 
 test("IoU and NMS remove lower-scored duplicate",()=>{

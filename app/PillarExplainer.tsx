@@ -14,8 +14,7 @@ const steps=[
   {title:"Place truck anchors",kicker:"Panorama first · one prior at a time",line:"A readable crop of truck-shaped priors spans the road ahead. Click one: the camera moves from the field to that single geometric hypothesis.",formula:"a = (xₐ,yₐ,zₐ,wₐ,lₐ,hₐ,θₐ)",note:"Only a teaching crop is drawn. A production head tiles anchors over the full detection grid and configured classes."},
   {title:"Match + train",kicker:"One real truck · three supervision states",line:"Around the front ground-truth truck, rotated BEV IoU labels anchors positive, ignored, or negative; only then do classification and box residual losses receive targets.",formula:"IoU → label · t = encode(gt,a) · Lcls + Lloc + Ldir",note:"Thresholds shown here are explicit teaching settings—not universal PointPillars constants."},
   {title:"CenterHead branch",kicker:"Same BEV · no anchor boxes",line:"A later CenterPoint head replaces tiled boxes with a class heatmap: the truck center becomes a Gaussian peak, while separate channels recover its exact center and 3D attributes.",formula:"H(c)=Gaussian · q=[δx,δy,z,log d,sinθ,cosθ,v]",note:"CenterHead is a later anchor-free detector, not part of the 2019 PointPillars paper. It can consume pillar-based BEV features."},
-  {title:"Suppress duplicates",kicker:"Keep one explanation",line:"NMS sorts candidates and removes lower-scoring boxes that overlap a selected box too strongly.",formula:"suppress bⱼ if IoU(b*, bⱼ) > τ",note:"Greedy and fast—not learned object reasoning."},
-  {title:"Return detections",kicker:"Back to physical space",line:"The remaining class, score, position, dimensions, and yaw are rendered over the original point cloud.",formula:"d = (class, score, x,y,z,w,l,h,θ)",note:"The final box returns to the same frame where the story began."},
+  {title:"Return to the scene",kicker:"Decode · filter · suppress · compare",line:"Decode scored boxes, remove weak and overlapping candidates, then return every survivor to the same point cloud—and the same red ground truth—introduced in Chapter 2.",formula:"logits → scores · decode(a,t̂) · NMS₀.₅ → {dₖ}",note:"Red is official nuScenes ground truth. Blue boxes are deterministic teaching predictions for geometry—not outputs from a trained checkpoint."},
 ] as const;
 
 function Matrix({rows,cols,tone="blue"}:{rows:number;cols:number;tone?:"blue"|"purple"|"ink"}){
@@ -107,6 +106,19 @@ function CenterHeadLedger({metrics}:{metrics:DetectionMetrics|null}){
   </div>;
 }
 
+function FinalPredictionLedger(){
+  return <div className="pp-detection-ledger pp-final-ledger" aria-label="Decode, confidence filter, non-maximum suppression, and final prediction comparison">
+    <section><div className="pp-candidates-mini"><i/><i/><i/><i/></div><b>4 decoded boxes</b><span>same truck · different scores</span></section>
+    <em data-note="score ≥ .30">→</em>
+    <section><div className="pp-score-filter-mini"><i>.88</i><i>.71</i><i>.46</i><i>.24</i></div><b>3 candidates remain</b><span>weak evidence exits early</span></section>
+    <em data-note="axis-aligned NMS · IoU .5">→</em>
+    <section><div className="pp-nms-mini"><i/><i/><i/><b/></div><b>1 truck survives</b><span>greedy score order</span></section>
+    <em data-note="decode to LiDAR frame">→</em>
+    <section><div className="pp-compare-mini"><i/><i/><span/></div><b>Chapter 2, revisited</b><span>red GT · blue prediction</span></section>
+    <small><strong>Visual truthfulness</strong><br/>The 69 red boxes are official annotations from this nuScenes keyframe. Six blue boxes are deterministic teaching geometry, paired to GT so you can inspect residual localization—not benchmark accuracy.</small>
+  </div>;
+}
+
 function SelectionCard({selection,onClose}:{selection:SceneSelection;onClose:()=>void}){
   const f=(value:number,digits=2)=>value.toFixed(digits);
   const title=selection.kind==="point"?`Point ${selection.index}`:selection.kind==="cell"?`Cell [${selection.index[0]}, ${selection.index[1]}]`:selection.kind==="anchor"?`Truck anchor · ${selection.id.split("-").at(-1)}°`:selection.category.split(".").map(part=>part.replaceAll("_"," ")).join(" / ");
@@ -116,6 +128,8 @@ function SelectionCard({selection,onClose}:{selection:SceneSelection;onClose:()=
     ["center (x,y,z)",`(${selection.center.map(v=>f(v)).join(", ")}) m`],["length × width × height",`${selection.dimensions.map(v=>f(v)).join(" × ")} m`],["yaw",`${f(selection.yaw*180/Math.PI,1)}°`],["LiDAR returns",String(selection.numLidarPoints)],["radar returns",String(selection.numRadarPoints)],["token",selection.token.slice(0,8)+"…"]
   ]:selection.kind==="anchor"?[
     ["assignment",selection.status],["loss mask",selection.status==="positive"?"cls + loc + direction":selection.status==="negative"?"background cls only":"none"],["rotated BEV IoU",f(selection.iou,4)],["center (x,y,z)",`(${selection.center.map(v=>f(v)).join(", ")}) m`],["length × width × height",`${selection.dimensions.map(v=>f(v)).join(" × ")} m`],["yaw",`${f(selection.yaw*180/Math.PI,1)}°`],["target (Δx,Δy,Δz)",`(${selection.residual.slice(0,3).map(v=>f(v,3)).join(", ")})`],["target (log w,l,h)",`(${selection.residual.slice(3,6).map(v=>f(v,3)).join(", ")})`],["target Δyaw",`${f(selection.residual[6],3)} rad`]
+  ]:selection.kind==="prediction"?[
+    ["class",selection.category.replaceAll("_"," ")],["confidence",f(selection.score,2)],["center (x,y,z)",`(${selection.center.map(v=>f(v)).join(", ")}) m`],["length × width × height",`${selection.dimensions.map(v=>f(v)).join(" × ")} m`],["yaw",`${f(selection.yaw*180/Math.PI,1)}°`],["paired GT IoU",f(selection.matchIou,4)],["paired GT token",selection.gtToken.slice(0,8)+"…"]
   ]:selection.stage==="pseudo-image"?[
     ["BEV index [y,x]",`[${selection.index.join(", ")}]`],["site",selection.active?"active feature":"zero / empty"],["pillar-list index p",selection.pillarListIndex===null?"none":String(selection.pillarListIndex)],["scatter write",selection.pillarListIndex===null?"I[:,y,x] = 0":`I[:,${selection.index[0]},${selection.index[1]}] ← F[${selection.pillarListIndex},:]`],["feature channels",String(selection.featureChannels)],["source points",String(selection.pointCount)],["center (x,y)",`(${selection.center.map(v=>f(v)).join(", ")}) m`]
   ]:[
@@ -125,7 +139,7 @@ function SelectionCard({selection,onClose}:{selection:SceneSelection;onClose:()=
   return <aside className={`pp-inspector ${selection.kind}`} aria-live="polite">
     <button onClick={onClose} aria-label="Close information card">×</button><span>{label}</span><h2>{title}</h2>
     <div>{rows.map(([key,value])=><p key={key}><b>{key}</b><em>{value}</em></p>)}</div>
-    <small>{selection.kind==="box"&&selection.source==="teaching geometry"?"Ego is a teaching envelope, not a dataset annotation.":selection.kind==="anchor"?"Residuals encode this real nuScenes truck relative to the selected prior.":selection.kind==="cell"&&selection.stage==="pseudo-image"?"Scatter is an indexed copy: no interpolation, averaging, or learned weights.":"LIDAR_TOP · +x right · +y forward · +z up"}</small>
+    <small>{selection.kind==="box"&&selection.source==="teaching geometry"?"Ego is a teaching envelope, not a dataset annotation.":selection.kind==="prediction"?"Teaching geometry only. It must not be interpreted as a measured detector score or benchmark result.":selection.kind==="anchor"?"Residuals encode this real nuScenes truck relative to the selected prior.":selection.kind==="cell"&&selection.stage==="pseudo-image"?"Scatter is an indexed copy: no interpolation, averaging, or learned weights.":"LIDAR_TOP · +x right · +y forward · +z up"}</small>
   </aside>;
 }
 
@@ -136,7 +150,7 @@ export default function PillarExplainer(){
   useEffect(()=>{setSelection(null);document.body.style.cursor="default"},[step]);
   useEffect(()=>{const key=(e:KeyboardEvent)=>{if(e.key==="ArrowRight")go(step+1);if(e.key==="ArrowLeft")go(step-1);if(e.key===" "){e.preventDefault();setPlaying(v=>!v)}};window.addEventListener("keydown",key);return()=>window.removeEventListener("keydown",key)},[go,step]);
   const s=steps[step];
-  const gesture=step===2||step===3?"CLICK A BLUE PILLAR TO TRACE IT · CLICK A BLACK POINT TO INSPECT IT":step===4?"CLICK ANY BEV CELL · TRACE PILLAR-LIST ROW → SPATIAL ADDRESS":step===5?"FOLLOW THE ORANGE PULSES · DRAG TO ORBIT THE BACKBONE":step===6||step===7?"CLICK A TRUCK ANCHOR · THE CAMERA WILL FOLLOW · DRAG TO ORBIT":"DRAG TO ROTATE · SCROLL TO ZOOM · CLICK A POINT, BOX, OR BEV CELL";
+  const gesture=step===2||step===3?"CLICK A BLUE PILLAR TO TRACE IT · CLICK A BLACK POINT TO INSPECT IT":step===4?"CLICK ANY BEV CELL · TRACE PILLAR-LIST ROW → SPATIAL ADDRESS":step===5?"FOLLOW THE ORANGE PULSES · DRAG TO ORBIT THE BACKBONE":step===6||step===7?"CLICK A TRUCK ANCHOR · THE CAMERA WILL FOLLOW · DRAG TO ORBIT":step===9?"WATCH NMS RESOLVE · CLICK A RED GT OR BLUE PREDICTION · DRAG TO ORBIT":"DRAG TO ROTATE · SCROLL TO ZOOM · CLICK A POINT, BOX, OR BEV CELL";
   return <main className="pp-app">
     <header className="pp-header"><a href="#" className="pp-wordmark">PointPillars <span>/ geometry lab</span></a><div className="pp-stage-count">{String(step+1).padStart(2,"0")} <i/> {String(steps.length).padStart(2,"0")}</div></header>
     <section className="pp-stage">
@@ -150,9 +164,11 @@ export default function PillarExplainer(){
       {step===6&&<AnchorFieldLedger metrics={detectionMetrics}/>}
       {step===7&&<TruckMatchLedger metrics={detectionMetrics}/>}
       {step===8&&<CenterHeadLedger metrics={detectionMetrics}/>}
+      {step===9&&<FinalPredictionLedger/>}
       {(step===6||step===7||step===8)&&<div className={`pp-branch-label ${step===8?"center":"anchor"}`}>{step===8?"SAME BEV FEATURES → CENTERHEAD · LATER METHOD":"BEV FEATURES → ANCHOR HEAD"}</div>}
-      <aside className={`pp-margin-note ${step>=4&&step<=8?"pp-detection-note":""}`} key={`n${step}`}><b>{step+1}.</b><p>{s.note}</p><i/></aside>
+      <aside className={`pp-margin-note ${step>=4&&step<=9?"pp-detection-note":""}`} key={`n${step}`}><b>{step+1}.</b><p>{s.note}</p><i/></aside>
       {step===1&&<div className="pp-box-key"><i/>RED JELLY = NUSCENES GT · EGO = TEACHING ENVELOPE</div>}
+      {step===9&&<div className="pp-box-key pp-final-key"><i/>RED = CHAPTER 02 GT · <b/>BLUE = TEACHING PREDICTION</div>}
       <div className="pp-gesture">{gesture}</div>
     </section>
     <footer className="pp-controls">

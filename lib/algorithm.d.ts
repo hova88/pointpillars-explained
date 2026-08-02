@@ -13,3 +13,4 @@ export function gaussianRadius(size:[number,number],minOverlap?:number): number;
 export function gaussianValue(dx:number,dy:number,sigma:number): number;
 export function nms(boxes:Box[], threshold:number): Box[];
 export function encodeBox(box:Box, anchor:Box): number[];
+export function decodeBox(target:number[], anchor:Box): Box;
