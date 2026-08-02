@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { boxIou2d, decoratePoint, encodeBox, gaussianRadius, gaussianValue, maxPool, nms, pillarIndex, rotatedBoxIou2d } from "../lib/algorithm.mjs";
+import { boxIou2d, decoratePoint, encodeBox, gaussianRadius, gaussianValue, maxPool, nms, pillarIndex, rotatedBoxIou2d, scatterPillarFeatures } from "../lib/algorithm.mjs";
 
 test("pillar indexing uses half-open boundaries",()=>{
   assert.deepEqual(pillarIndex([0,0,0,0],[-1,-1,1,1],.5),[2,2]);
@@ -46,6 +46,26 @@ test("the displayed nuScenes frame produces the real pillar population",()=>{
 test("max pooling ignores point order",()=>{
   const x=[[1,7,2],[4,2,3],[0,5,9]];
   assert.deepEqual(maxPool(x),maxPool([...x].reverse()));
+});
+
+test("scatter uses each compact pillar row's paired BEV address",()=>{
+  const features=[[1,2],[3,4]];
+  const coordinates=[[0,1],[2,0]];
+  const image=scatterPillarFeatures(features,coordinates,3,3);
+  assert.deepEqual([image[0][0][1],image[1][0][1]],[1,2]);
+  assert.deepEqual([image[0][2][0],image[1][2][0]],[3,4]);
+  assert.deepEqual(image[0][1],[0,0,0]);
+  assert.deepEqual(
+    scatterPillarFeatures([...features].reverse(),[...coordinates].reverse(),3,3),
+    image,
+  );
+});
+
+test("the three PointPillars backbone scales align before concatenation",()=>{
+  const topDown=[[16,16],[8,8],[4,4]];
+  const upsample=[1,2,4];
+  assert.deepEqual(topDown.map((shape,i)=>shape.map(value=>value*upsample[i])),[[16,16],[16,16],[16,16]]);
+  assert.equal(128*3,384);
 });
 
 test("box coding is zero for a matching anchor",()=>{

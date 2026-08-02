@@ -26,7 +26,7 @@ export type DetectionMetrics={
 export type SceneSelection=
   |{kind:"point";index:number;point:Point;range:number;cell:[number,number];insideTeachingPillar:boolean}
   |{kind:"box";source:"nuScenes ground truth"|"teaching geometry";category:string;center:[number,number,number];dimensions:[number,number,number];yaw:number;numLidarPoints:number;numRadarPoints:number;token:string}
-  |{kind:"cell";stage:"quantization grid"|"pseudo-image";index:[number,number];center:[number,number];bounds:[number,number,number,number];size:number;pointCount:number}
+  |{kind:"cell";stage:"quantization grid"|"pseudo-image";index:[number,number];center:[number,number];bounds:[number,number,number,number];size:number;pointCount:number;active:boolean;pillarListIndex:number|null;featureChannels:number}
   |{kind:"anchor";chapter:"placement"|"matching";id:string;center:[number,number,number];dimensions:[number,number,number];yaw:number;iou:number;status:AnchorStatus;residual:number[]};
 
 const GRID_EXTENT=24,PILLAR_SIZE=1.5,Z_MIN=-2.5,Z_MAX=3.5,DEFAULT_PILLAR_KEY="11,10";
@@ -63,8 +63,8 @@ function StoryCamera({step,focus,detail=false}:{step:number;focus:[number,number
     if(step===1)return {position:new THREE.Vector3(0,8,72),look:new THREE.Vector3(0,8,0)};
     if(step===2)return {position:new THREE.Vector3(34,32,38),look:new THREE.Vector3(0,4,0)};
     if(step===3)return {position:look.clone().add(new THREE.Vector3(8.5,8.5,7.5)),look};
-    if(step===4)return {position:new THREE.Vector3(0,0,46),look:new THREE.Vector3(0,0,-2)};
-    if(step===5)return {position:new THREE.Vector3(27,23,24),look:new THREE.Vector3(0,1,5)};
+    if(step===4)return {position:new THREE.Vector3(27,23,43),look:new THREE.Vector3(0,0,-1.2)};
+    if(step===5)return {position:new THREE.Vector3(29,29,27),look:new THREE.Vector3(0,3,7)};
     if(step===6)return detail?{position:look.clone().add(new THREE.Vector3(10,10,8)),look}:{position:new THREE.Vector3(25,35,34),look:new THREE.Vector3(-4.5,15,.4)};
     if(step===7)return {position:look.clone().add(new THREE.Vector3(11,10,8)),look};
     if(step===8)return {position:new THREE.Vector3(TRUCK_GT.center[0],TRUCK_GT.center[1],37),look:new THREE.Vector3(TRUCK_GT.center[0],TRUCK_GT.center[1],-2.15)};
@@ -224,19 +224,58 @@ function CenterHeatmapLayer(){
   </group>;
 }
 
-function PseudoImageLayer({points}:{points:Point[]}){
-  const cells=useMemo(()=>{
-    const map=new Map<string,{x:number;y:number;n:number}>();
-    points.forEach(([x,y])=>{if(Math.abs(x)>24||Math.abs(y)>24)return;const ix=Math.floor((x+24)/3),iy=Math.floor((y+24)/3),k=`${ix},${iy}`;const c=map.get(k)??{x:-22.5+ix*3,y:-22.5+iy*3,n:0};c.n++;map.set(k,c)});
-    return [...map.values()].filter(c=>c.n>1).slice(0,320);
-  },[points]);
-  return <group>{cells.map((c,i)=><mesh key={i} position={[c.x,c.y,-2.42]}><boxGeometry args={[2.82,2.82,.1]}/><meshBasicMaterial color={c.n>9?"#70abc6":"#d8eaf1"} transparent opacity={Math.min(.8,.18+c.n*.035)}/></mesh>)}</group>;
+function ScatterLayer({cells,selection,fallback}:{cells:PillarCell[];selection:SceneSelection|null;fallback:PillarCell}){
+  const mesh=useRef<THREE.InstancedMesh>(null),progress=useRef(0),dummy=useMemo(()=>new THREE.Object3D(),[]);
+  useEffect(()=>{progress.current=0},[cells]);
+  useFrame((_,delta)=>{
+    const target=mesh.current;if(!target)return;progress.current=Math.min(1,progress.current+delta*.72);
+    cells.forEach((cell,index)=>{const delay=(index%19)*.008,t=THREE.MathUtils.smoothstep(Math.max(0,progress.current-delay),0,1),height=.07+Math.min(.18,Math.log2(cell.records.length+1)*.022),start=5.8+(index%11)*.16,finish=-2.42+height/2;
+      dummy.position.set(cell.center[0],cell.center[1],THREE.MathUtils.lerp(start,finish,t));dummy.scale.set(PILLAR_SIZE*.91,PILLAR_SIZE*.91,height);dummy.updateMatrix();target.setMatrixAt(index,dummy.matrix)});target.instanceMatrix.needsUpdate=true;
+  });
+  const chosen=selection?.kind==="cell"&&selection.stage==="pseudo-image"?{center:selection.center,active:selection.active}: {center:[fallback.center[0],fallback.center[1]] as [number,number],active:true};
+  return <group>
+    <instancedMesh ref={mesh} args={[undefined,undefined,cells.length]} renderOrder={3}><boxGeometry args={[1,1,1]}/><meshPhysicalMaterial color="#88bed3" transparent opacity={.72} roughness={.18} clearcoat={.8}/></instancedMesh>
+    <group position={[chosen.center[0],chosen.center[1],0]}>
+      {chosen.active?Array.from({length:6},(_,index)=><mesh key={index} position={[0,0,.25+index*.24]} renderOrder={5}><boxGeometry args={[PILLAR_SIZE*.72,PILLAR_SIZE*.72,.075]}/><meshBasicMaterial color={index%2?"#7d55a0":"#4e99b9"} transparent opacity={.25+index*.075} depthWrite={false}/></mesh>):null}
+      <VectorLine from={[0,0,chosen.active?1.55:-2.2]} to={[0,0,-2.32]} color={chosen.active?"#e67818":"#8a8880"}/>
+      <mesh position={[0,0,-2.28]} renderOrder={7}><boxGeometry args={[PILLAR_SIZE*.96,PILLAR_SIZE*.96,.09]}/><meshBasicMaterial color={chosen.active?"#e67818":"#8a8880"} transparent opacity={.3} wireframe depthWrite={false}/></mesh>
+    </group>
+  </group>;
+}
+
+const PolyLine=({points,color,opacity=.7}:{points:[number,number,number][];color:string;opacity?:number})=>{
+  const positions=useMemo(()=>{const values:number[]=[];for(let i=0;i<points.length-1;i+=1)values.push(...points[i],...points[i+1]);return new Float32Array(values)},[points]);
+  return <lineSegments><bufferGeometry><bufferAttribute attach="attributes-position" args={[positions,3]}/></bufferGeometry><lineBasicMaterial color={color} transparent opacity={opacity} depthWrite={false}/></lineSegments>;
+};
+
+function FlowPulse({points,color,offset=0}:{points:[number,number,number][];color:string;offset?:number}){
+  const ref=useRef<THREE.Mesh>(null);
+  useFrame(({clock})=>{if(!ref.current)return;const t=(clock.getElapsedTime()*.16+offset)%1,scaled=t*(points.length-1),index=Math.min(points.length-2,Math.floor(scaled)),local=scaled-index;ref.current.position.lerpVectors(new THREE.Vector3(...points[index]),new THREE.Vector3(...points[index+1]),local)});
+  return <mesh ref={ref} renderOrder={8}><sphereGeometry args={[.16,16,16]}/><meshBasicMaterial color={color}/></mesh>;
+}
+
+function TensorSlab({position,size,layers,color}:{position:[number,number,number];size:[number,number];layers:number;color:string}){
+  return <group position={position}>{Array.from({length:layers},(_,index)=><mesh key={index} position={[index*.07,index*.055,index*.13]} renderOrder={3+index}><boxGeometry args={[size[0],size[1],.11]}/><meshPhysicalMaterial color={color} transparent opacity={.075+index*.016} transmission={.2} roughness={.2} clearcoat={.8} depthWrite={false}/></mesh>)}<mesh position={[0,0,layers*.13+.015]} renderOrder={7}><planeGeometry args={[size[0],size[1],Math.max(2,Math.round(size[0])),Math.max(2,Math.round(size[1]))]}/><meshBasicMaterial color={color} transparent opacity={.48} wireframe side={THREE.DoubleSide} depthWrite={false}/></mesh></group>;
+}
+
+function KernelScanner({position,size}:{position:[number,number,number];size:[number,number]}){
+  const ref=useRef<THREE.Group>(null);
+  useFrame(({clock})=>{if(ref.current){const t=(Math.sin(clock.getElapsedTime()*.9)+1)/2;ref.current.position.x=position[0]-size[0]*.34+t*size[0]*.68;ref.current.position.y=position[1]+Math.sin(clock.getElapsedTime()*.63)*size[1]*.2}});
+  return <group ref={ref} position={position}><mesh><boxGeometry args={[1.05,1.05,.18]}/><meshBasicMaterial color="#e67818" transparent opacity={.22} wireframe/></mesh><mesh position={[0,0,.13]}><planeGeometry args={[1.05,1.05,3,3]}/><meshBasicMaterial color="#e67818" transparent opacity={.82} wireframe side={THREE.DoubleSide}/></mesh></group>;
 }
 
 function BackboneLayer(){
-  return <group>{[
-    {z:4,s:[34,27] as [number,number],c:"#d8eaf1"},{z:7,s:[25,19] as [number,number],c:"#a9cfdf"},{z:10,s:[17,12] as [number,number],c:"#70abc6"}
-  ].map((p,i)=><mesh key={i} position={[0,1,p.z]}><planeGeometry args={[p.s[0],p.s[1],12-i*3,9-i*2]}/><meshPhysicalMaterial color={p.c} transparent opacity={.14+i*.05} roughness={.2} transmission={.2} wireframe side={THREE.DoubleSide} depthWrite={false}/></mesh>)}</group>;
+  const input:[number,number,number]=[-12,-4,1],b1:[number,number,number]=[-7,-2,4],b2:[number,number,number]=[-1,0,7],b3:[number,number,number]=[5,2,10];
+  const u1:[number,number,number]=[-6,9,13],u2:[number,number,number]=[0,9,14],u3:[number,number,number]=[6,9,15],fused:[number,number,number]=[0,9,18];
+  const trunk=[input,b1,b2,b3],path1=[b1,u1,fused],path2=[b2,u2,fused],path3=[b3,u3,fused];
+  return <group>
+    <TensorSlab position={input} size={[10,7.5]} layers={3} color="#a8d6e8"/><KernelScanner position={[input[0],input[1],input[2]+.65]} size={[10,7.5]}/>
+    <TensorSlab position={b1} size={[8,6]} layers={4} color="#8fc8df"/><TensorSlab position={b2} size={[6,4.5]} layers={6} color="#78adca"/><TensorSlab position={b3} size={[4.3,3.2]} layers={6} color="#6e56a0"/>
+    <TensorSlab position={u1} size={[7.5,5.4]} layers={3} color="#9ecfe1"/><TensorSlab position={u2} size={[7.5,5.4]} layers={3} color="#b1a1c8"/><TensorSlab position={u3} size={[7.5,5.4]} layers={3} color="#e5b27f"/>
+    <TensorSlab position={fused} size={[9,6.5]} layers={6} color="#547f96"/>
+    <PolyLine points={trunk} color="#4e99b9"/><PolyLine points={path1} color="#4e99b9"/><PolyLine points={path2} color="#7d55a0"/><PolyLine points={path3} color="#e67818"/>
+    <FlowPulse points={trunk} color="#e67818"/><FlowPulse points={path1} color="#4e99b9" offset={.18}/><FlowPulse points={path2} color="#7d55a0" offset={.48}/><FlowPulse points={path3} color="#e67818" offset={.76}/>
+  </group>;
 }
 
 function MatchingLayer({mode}:{mode:"nms"|"final"}){
@@ -282,20 +321,22 @@ function GroundTruthLayer({boxes,selection,onSelect}:{boxes:BoxAnnotation[];sele
   </group>;
 }
 
-function ClickableBev({points,size,stage,selection,onSelect}:{points:Point[];size:number;stage:"quantization grid"|"pseudo-image";selection:SceneSelection|null;onSelect:(selection:SceneSelection)=>void}){
+function ClickableBev({points,size,stage,selection,onSelect,pillarCells=[]}:{points:Point[];size:number;stage:"quantization grid"|"pseudo-image";selection:SceneSelection|null;onSelect:(selection:SceneSelection)=>void;pillarCells?:PillarCell[]}){
   const extent=24;
   const occupancy=useMemo(()=>{
     const counts=new Map<string,number>();
     points.forEach(([x,y])=>{if(x< -extent||x>=extent||y< -extent||y>=extent)return;const ix=Math.floor((x+extent)/size),iy=Math.floor((y+extent)/size),key=`${ix},${iy}`;counts.set(key,(counts.get(key)??0)+1)});
     return counts;
   },[points,size]);
+  const pillarLookup=useMemo(()=>new Map(pillarCells.map((cell,index)=>[cell.key,index])),[pillarCells]);
   const chosen=selection?.kind==="cell"&&selection.stage===stage?selection:null;
   const choose=(e:ThreeEvent<PointerEvent>)=>{
     e.stopPropagation();
     const ix=Math.floor((e.point.x+extent)/size),iy=Math.floor((e.point.y+extent)/size);
     if(ix<0||iy<0||ix>=48/size||iy>=48/size)return;
     const x0=-extent+ix*size,y0=-extent+iy*size;
-    onSelect({kind:"cell",stage,index:[iy,ix],center:[x0+size/2,y0+size/2],bounds:[x0,x0+size,y0,y0+size],size,pointCount:occupancy.get(`${ix},${iy}`)??0});
+    const pointCount=occupancy.get(`${ix},${iy}`)??0,pillarListIndex=stage==="pseudo-image"?pillarLookup.get(`${ix},${iy}`)??null:null;
+    onSelect({kind:"cell",stage,index:[iy,ix],center:[x0+size/2,y0+size/2],bounds:[x0,x0+size,y0,y0+size],size,pointCount,active:pointCount>0,pillarListIndex,featureChannels:stage==="pseudo-image"?64:0});
   };
   return <group>
     <mesh position={[0,0,-2.4]} onPointerDown={choose} onPointerOver={()=>{document.body.style.cursor="crosshair"}} onPointerOut={()=>{document.body.style.cursor="default"}}>
@@ -359,11 +400,11 @@ function SceneContent({data,boxData,step,selection,onSelection,onMetrics,onDetec
   return <>
     <StoryCamera step={step} focus={focus} detail={step===6&&selection?.kind==="anchor"}/>
     {step===1&&<GroundTruthLayer boxes={boxData.boxes} selection={selection} onSelect={onSelection}/>}
-    <points onPointerDown={e=>{if(typeof e.index==="number")choosePoint(outsideRecords[e.index],false,e)}}>
+    <points onPointerDown={step===4?undefined:e=>{if(typeof e.index==="number")choosePoint(outsideRecords[e.index],false,e)}}>
       <bufferGeometry><bufferAttribute attach="attributes-position" args={[outsidePositions,3]}/></bufferGeometry>
       <pointsMaterial color="#111111" size={teaching?.105:step>=4?.1:.16} transparent opacity={teaching?(step===2?.34:.13):step>=4?.15:.86} sizeAttenuation/>
     </points>
-    <points onPointerDown={(e:ThreeEvent<PointerEvent>)=>{if(typeof e.index==="number"){setSelectedIndex(e.index);choosePoint(insideRecords[e.index],true,e)}}}>
+    <points onPointerDown={step===4?undefined:(e:ThreeEvent<PointerEvent>)=>{if(typeof e.index==="number"){setSelectedIndex(e.index);choosePoint(insideRecords[e.index],true,e)}}}>
       <bufferGeometry><bufferAttribute attach="attributes-position" args={[insidePositions,3]}/></bufferGeometry>
       <pointsMaterial color="#050505" size={teaching?.25:.17} transparent opacity={1} sizeAttenuation/>
     </points>
@@ -377,7 +418,7 @@ function SceneContent({data,boxData,step,selection,onSelection,onMetrics,onDetec
       <mesh position={[selected[0],selected[1],selected[2]]}><sphereGeometry args={[.15,20,20]}/><meshBasicMaterial color="#050505"/></mesh>
       <VectorLine from={[selected[0],selected[1],selected[2]]} to={fixedReference} color="#65a8c6"/><VectorLine from={[selected[0],selected[1],selected[2]]} to={selectedCell.mean} color="#111111"/>
     </>}
-    {step===4&&<><PseudoImageLayer points={data.points}/><ClickableBev points={data.points} size={3} stage="pseudo-image" selection={selection} onSelect={onSelection}/></>}
+    {step===4&&<><MetricGrid/><ScatterLayer cells={cells} selection={selection} fallback={selectedCell}/><ClickableBev points={data.points} size={PILLAR_SIZE} stage="pseudo-image" selection={selection} onSelect={onSelection} pillarCells={cells}/></>}
     {step===5&&<BackboneLayer/>}
     {step===6&&<TruckAnchorField anchors={truckAnchors} selection={selection} onSelect={onSelection}/>}
     {step===7&&<TruckAnchorField anchors={truckAnchors} selection={selection} onSelect={onSelection} matching/>}
