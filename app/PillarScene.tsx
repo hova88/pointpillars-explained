@@ -11,6 +11,7 @@ export type PillarMetrics={count:number;center:[number,number,number];mean:[numb
 
 const CELL={x0:-7.5,x1:-6,y0:-9,y1:-7.5,z0:-2.5,z1:3.5};
 const FIXED_CENTER:[number,number,number]=[(CELL.x0+CELL.x1)/2,(CELL.y0+CELL.y1)/2,(CELL.z0+CELL.z1)/2];
+const PAPER="#f8f6ed";
 
 const VectorLine=({from,to,color,width=1}:{from:[number,number,number];to:[number,number,number];color:string;width?:number})=>{
   const positions=useMemo(()=>new Float32Array([...from,...to]),[from,to]);
@@ -73,7 +74,22 @@ function Pillar({step}:{step:number}){
       <boxGeometry args={[CELL.x1-CELL.x0,CELL.y1-CELL.y0,CELL.z1-CELL.z0]}/>
       <meshBasicMaterial color="#72a9c2" transparent opacity={.56} wireframe/>
     </mesh>
+    <PillarHatching/>
   </group>;
+}
+
+function PillarHatching(){
+  const lines=useMemo(()=>{
+    const p:number[]=[];const slope=1.25;const eps=.012;
+    for(let base=CELL.z0-1.8;base<CELL.z1;base+=.22){
+      const xa=Math.max(CELL.x0,CELL.x0+(CELL.z0-base)/slope),xb=Math.min(CELL.x1,CELL.x0+(CELL.z1-base)/slope);
+      if(xa<xb){const za=base+slope*(xa-CELL.x0),zb=base+slope*(xb-CELL.x0);p.push(xa,CELL.y0-eps,za,xb,CELL.y0-eps,zb,xa,CELL.y1+eps,za,xb,CELL.y1+eps,zb)}
+      const ya=Math.max(CELL.y0,CELL.y0+(CELL.z0-base)/slope),yb=Math.min(CELL.y1,CELL.y0+(CELL.z1-base)/slope);
+      if(ya<yb){const za=base+slope*(ya-CELL.y0),zb=base+slope*(yb-CELL.y0);p.push(CELL.x0-eps,ya,za,CELL.x0-eps,yb,zb,CELL.x1+eps,ya,za,CELL.x1+eps,yb,zb)}
+    }
+    return new Float32Array(p);
+  },[]);
+  return <lineSegments renderOrder={4}><bufferGeometry><bufferAttribute attach="attributes-position" args={[lines,3]}/></bufferGeometry><lineBasicMaterial color="#78abc1" transparent opacity={.46} depthWrite={false}/></lineSegments>;
 }
 
 function CenterMarker({position,kind}:{position:[number,number,number];kind:"fixed"|"mean"}){
@@ -158,7 +174,7 @@ export function PillarScene({step,onMetrics}:{step:number;onMetrics:(m:PillarMet
   useEffect(()=>{const base=process.env.NODE_ENV==="production"?"/pointpillars-explained":"";fetch(`${base}/data/nuscenes-lidar-demo.json`).then(r=>r.json()).then(setData)},[]);
   return <div className="pp-canvas" aria-label="Interactive PointPillars geometry">
     {data?<Canvas camera={{position:[31,27,25],fov:44,near:.05,far:200}} dpr={[1,1.7]} gl={{antialias:true}}>
-      <color attach="background" args={["#ffffff"]}/><ambientLight intensity={2.2}/><directionalLight position={[8,9,14]} intensity={2.8}/>
+      <color attach="background" args={[PAPER]}/><ambientLight intensity={2.2}/><directionalLight position={[8,9,14]} intensity={2.8}/>
       <SceneContent data={data} step={step} onMetrics={onMetrics}/>
     </Canvas>:<div className="pp-loading">Loading the LiDAR frame</div>}
   </div>;
