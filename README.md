@@ -1,6 +1,6 @@
 # PointPillars Geometry Lab
 
-A focused, full-screen 3D explanation of PointPillars. One verified nuScenes LiDAR keyframe remains visible while the presentation moves through XY quantization, pillar formation, the fixed cell center, the point-set mean, feature offsets, pillar encoding, BEV scatter, the 2D backbone, anchors, matching, losses, NMS, and final detections.
+A focused, full-screen 3D explanation of PointPillars. One verified nuScenes LiDAR keyframe remains visible while the presentation moves through XY quantization, pillar formation, the fixed cell center, the point-set mean, feature offsets, `(D,P,N)` stacking, shared point encoding, max pooling, BEV scatter, the 2D backbone, anchors, matching, losses, NMS, and final detections.
 
 The teaching pillar is calculated from real returns in the embedded frame. Its geometric center is derived from fixed grid bounds; its cluster mean is recomputed from the points assigned to the cell.
 

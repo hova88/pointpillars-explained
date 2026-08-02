@@ -28,9 +28,9 @@ function StoryCamera({step}:{step:number}){
     if(step===1)return {position:new THREE.Vector3(0,0,46),look:new THREE.Vector3(0,0,0)};
     if(step===2)return {position:look.clone().add(new THREE.Vector3(8,8,7)),look};
     if(step<=5)return {position:look.clone().add(new THREE.Vector3(5.2,5.2,4.2)),look};
-    if(step===6)return {position:look.clone().add(new THREE.Vector3(9,8,7)),look};
-    if(step===7)return {position:new THREE.Vector3(0,0,46),look:new THREE.Vector3(0,0,-2)};
-    if(step===8)return {position:new THREE.Vector3(27,23,24),look:new THREE.Vector3(0,1,5)};
+    if(step<=7)return {position:look.clone().add(new THREE.Vector3(9,8,7)),look};
+    if(step===8)return {position:new THREE.Vector3(0,0,46),look:new THREE.Vector3(0,0,-2)};
+    if(step===9)return {position:new THREE.Vector3(27,23,24),look:new THREE.Vector3(0,1,5)};
     return {position:new THREE.Vector3(25,21,20),look:new THREE.Vector3(-3,1,0)};
   },[step]);
   useEffect(()=>{
@@ -147,25 +147,24 @@ function SceneContent({data,step,onMetrics}:{data:DemoData;step:number;onMetrics
     <StoryCamera step={step}/>
     <points>
       <bufferGeometry><bufferAttribute attach="attributes-position" args={[outsidePositions,3]}/></bufferGeometry>
-      <pointsMaterial color="#111111" size={step>=2?.055:.075} transparent opacity={step>=2?.12:.78} sizeAttenuation/>
+      <pointsMaterial color="#111111" size={step>=2?.10:.16} transparent opacity={step>=2?.15:.86} sizeAttenuation/>
     </points>
     <points onPointerDown={(e:ThreeEvent<PointerEvent>)=>{e.stopPropagation();if(typeof e.index==="number")setSelectedIndex(e.index)}}>
       <bufferGeometry><bufferAttribute attach="attributes-position" args={[insidePositions,3]}/></bufferGeometry>
-      <pointsMaterial color="#050505" size={step>=2?.15:.085} transparent opacity={1} sizeAttenuation/>
+      <pointsMaterial color="#050505" size={step>=2?.24:.17} transparent opacity={1} sizeAttenuation/>
     </points>
     {step===1&&<MetricGrid/>}
-    {step>=2&&step<=6&&<><MetricGrid local/><Pillar key={step} step={step}/></>}
-    {step>=3&&step<=6&&<CenterMarker position={FIXED_CENTER} kind="fixed"/>}
-    {step>=4&&step<=6&&<CenterMarker position={mean} kind="mean"/>}
-    {step>=5&&step<=6&&selected&&<><mesh position={[selected[0],selected[1],selected[2]]}><sphereGeometry args={[.12,20,20]}/><meshBasicMaterial color="#050505"/></mesh><VectorLine from={[selected[0],selected[1],selected[2]]} to={FIXED_CENTER} color="#65a8c6"/><VectorLine from={[selected[0],selected[1],selected[2]]} to={mean} color="#111111"/></>}
-    {step===6&&Array.from({length:12},(_,i)=><mesh key={i} position={[FIXED_CENTER[0]+(i%4-1.5)*.24,FIXED_CENTER[1]+1.45,FIXED_CENTER[2]+(Math.floor(i/4)-1)*.3]}><boxGeometry args={[.18,.05,.18]}/><meshBasicMaterial color={i%3===0?"#65a8c6":"#111111"} transparent opacity={.74}/></mesh>)}
-    {step===7&&<PseudoImageLayer points={data.points}/>} 
-    {step===8&&<BackboneLayer/>}
-    {step===9&&<AnchorLayer/>}
-    {step===10&&<><AnchorLayer/><MatchingLayer mode="match"/></>}
-    {step===11&&<MatchingLayer mode="loss"/>}
-    {step===12&&<MatchingLayer mode="nms"/>}
-    {step===13&&<MatchingLayer mode="final"/>}
+    {step>=2&&step<=7&&<><MetricGrid local/><Pillar key={step} step={step}/></>}
+    {step>=3&&step<=7&&<CenterMarker position={FIXED_CENTER} kind="fixed"/>}
+    {step>=4&&step<=7&&<CenterMarker position={mean} kind="mean"/>}
+    {step>=5&&step<=7&&selected&&<><mesh position={[selected[0],selected[1],selected[2]]}><sphereGeometry args={[.15,20,20]}/><meshBasicMaterial color="#050505"/></mesh><VectorLine from={[selected[0],selected[1],selected[2]]} to={FIXED_CENTER} color="#65a8c6"/><VectorLine from={[selected[0],selected[1],selected[2]]} to={mean} color="#111111"/></>}
+    {step===8&&<PseudoImageLayer points={data.points}/>}
+    {step===9&&<BackboneLayer/>}
+    {step===10&&<AnchorLayer/>}
+    {step===11&&<><AnchorLayer/><MatchingLayer mode="match"/></>}
+    {step===12&&<MatchingLayer mode="loss"/>}
+    {step===13&&<MatchingLayer mode="nms"/>}
+    {step===14&&<MatchingLayer mode="final"/>}
   </>;
 }
 

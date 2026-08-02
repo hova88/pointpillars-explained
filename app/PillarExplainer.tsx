@@ -11,7 +11,8 @@ const steps=[
   {title:"Pillar center",kicker:"A fixed geometric reference",line:"The cell center comes from grid boundaries. It does not move when points move inside the pillar.",formula:"xₚ = xₘᵢₙ + (iₓ + ½)vₓ",note:"Grid-defined. Fixed. Do not confuse it with the observed-point mean."},
   {title:"Point-set mean",kicker:"A data-dependent reference",line:"Average the actual points in this pillar. Unlike the pillar center, this point follows the observed surface.",formula:"p̄ = (1/N) Σ pᵢ",note:"Move or remove a return and this center moves with the point set."},
   {title:"Decorate a point",kicker:"Two offsets, two meanings",line:"Blue locates the point within its fixed cell. Black describes its deviation from the observed local cluster.",formula:"[pᵢ, pᵢ − p̄, xᵢ − xₚ, yᵢ − yₚ]",note:"Same point, two reference frames. Neither vector replaces raw XYZ."},
-  {title:"Encode the pillar",kicker:"Many points become one vector",line:"A shared point network transforms every decorated point; symmetric max pooling produces one feature per pillar.",formula:"fₚ[c] = maxᵢ MLP(pᵢ)[c]",note:"A different point may win each learned feature channel."},
+  {title:"Stack the pillars",kicker:"Bound a sparse point set",line:"Retain at most P non-empty pillars and N points per pillar. Sample excess points; pad short pillars with masked zeros.",formula:"X ∈ ℝᴰ×ᴾ×ᴺ,  D = 9",note:"The article’s 9 × 12000 × 100 is one configuration—not a universal constant."},
+  {title:"Encode each pillar",kicker:"The simplified PointNet",line:"Apply the same Linear, BatchNorm and ReLU to every point, then take a channel-wise maximum across its N points.",formula:"(D,P,N) → (C,P,N) →max N (C,P)",note:"Max is over the point axis N—not over feature channels. A different point can win each channel."},
   {title:"Scatter to BEV",kicker:"Return features to space",line:"Each encoded pillar returns to its XY address. Empty cells remain zero, forming a pseudo-image.",formula:"I[:, iᵧ, iₓ] = fₚ",note:"This looks like an image, but every pixel stores a learned LiDAR feature."},
   {title:"Build context",kicker:"A two-dimensional backbone",line:"Convolutions trade resolution for receptive field, then align several scales for the detector.",formula:"F = concat(up(F₁), up(F₂), up(F₃))",note:"Coarser layers see farther; shallow layers retain precise location."},
   {title:"Place anchors",kicker:"Hypotheses in physical space",line:"Anchors are class-shaped box priors attached to BEV locations. The network predicts corrections—not boxes from nothing.",formula:"box = anchor ⊕ residual",note:"Anchor dimensions encode expected object geometry before learning."},
@@ -22,6 +23,29 @@ const steps=[
 ] as const;
 
 const fmt=(v:number)=>v.toFixed(2);
+
+function Matrix({rows,cols,tone="blue"}:{rows:number;cols:number;tone?:"blue"|"purple"|"ink"}){
+  return <div className={`pp-matrix ${tone}`} style={{gridTemplateColumns:`repeat(${cols},1fr)`}}>{Array.from({length:rows*cols},(_,i)=><i key={i} className={(i*7+i%cols)%11===0?"marked":""}/>)}</div>;
+}
+
+function StackLedger({count}:{count:number}){
+  return <div className="pp-ledger pp-stack-ledger" aria-label="Stacked pillar tensor construction">
+    <section><Matrix rows={5} cols={9}/><b>{count} × 9</b><span>decorated points</span></section>
+    <em data-note="sample / zero-pad">→</em>
+    <section><div className="pp-stack"><Matrix rows={5} cols={9}/><Matrix rows={5} cols={9}/><Matrix rows={5} cols={9}/></div><b>D × P × N</b><span>stacked pillars</span></section>
+    <small><strong>P</strong> capped non-empty pillars<br/><strong>N</strong> capped points per pillar<br/><strong>D = 9</strong> point features</small>
+  </div>;
+}
+
+function EncodeLedger(){
+  return <div className="pp-ledger pp-encode-ledger" aria-label="Pillar Feature Net transformation">
+    <section><Matrix rows={5} cols={9}/><b>D × P × N</b><span>decorated tensor</span></section>
+    <em data-note="shared Linear · BN · ReLU">→</em>
+    <section><Matrix rows={5} cols={8} tone="purple"/><b>C × P × N</b><span>point features</span></section>
+    <em data-note="max over N">→</em>
+    <section className="pooled"><Matrix rows={1} cols={8} tone="ink"/><b>C × P</b><span>one vector / pillar</span></section>
+  </div>;
+}
 
 export default function PillarExplainer(){
   const [step,setStep]=useState(0);const [playing,setPlaying]=useState(false);const [metrics,setMetrics]=useState<PillarMetrics|null>(null);
@@ -43,6 +67,8 @@ export default function PillarExplainer(){
       <PillarScene step={step} onMetrics={setMetrics}/>
       <article className="pp-story" key={step}><span>{s.kicker}<sup>{step+1}</sup></span><h1>{s.title}</h1><p>{s.line}</p><code>{s.formula}</code></article>
       {!!values.length&&<div className="pp-values" key={`v${step}`}>{values.map(([k,v])=><div key={k}><span>{k}</span><b>{v}</b></div>)}</div>}
+      {step===6&&<StackLedger count={metrics?.count??38}/>}
+      {step===7&&<EncodeLedger/>}
       <aside className="pp-margin-note" key={`n${step}`}><b>{step+1}.</b><p>{s.note}</p><i/></aside>
       <div className="pp-gesture">DRAG TO ROTATE · SCROLL TO ZOOM · CLICK A PILLAR POINT</div>
     </section>
