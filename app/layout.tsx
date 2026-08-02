@@ -3,10 +3,10 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   metadataBase: new URL("https://hova88.github.io/pointpillars-explained/"),
-  title: "Interactive PointPillars — Complete Algorithm Explorer",
-  description: "A rigorous, animated explanation of every PointPillars representation, operation, motivation and tradeoff.",
-  openGraph:{title:"See every PointPillars decision",description:"Trace a real nuScenes LiDAR sweep through pillars, learned features, a BEV backbone and 3D detections."},
-  twitter:{card:"summary",title:"Interactive PointPillars",description:"The complete algorithm, deconstructed."},
+  title: "PointPillars Geometry Lab",
+  description: "A focused 3D explanation of pillar construction, feature decoration, BEV encoding and anchor-based detection.",
+  openGraph:{title:"PointPillars Geometry Lab",description:"Follow one real LiDAR frame from points to pillars, centers, offsets, anchors and detections."},
+  twitter:{card:"summary",title:"PointPillars Geometry Lab",description:"One LiDAR frame. Every geometric decision."},
 };
 
 export default function RootLayout({

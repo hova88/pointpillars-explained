@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
 import { boxIou2d, decoratePoint, encodeBox, maxPool, nms, pillarIndex } from "../lib/algorithm.mjs";
 
 test("pillar indexing uses half-open boundaries",()=>{
@@ -14,6 +15,19 @@ test("cluster offsets are translation invariant",()=>{
   const db=decoratePoint(b[0],b,[11.5,-4.5]);
   assert.deepEqual(da.slice(4),db.slice(4));
   assert.notDeepEqual(da.slice(0,3),db.slice(0,3));
+});
+
+test("teaching pillar keeps the fixed cell center distinct from its point mean",()=>{
+  const demo=JSON.parse(fs.readFileSync(new URL("../public/data/nuscenes-lidar-demo.json",import.meta.url),"utf8"));
+  const bounds={x0:-7.5,x1:-6,y0:-9,y1:-7.5,z0:-2.5,z1:3.5};
+  const center=[(bounds.x0+bounds.x1)/2,(bounds.y0+bounds.y1)/2,(bounds.z0+bounds.z1)/2];
+  const points=demo.points.filter(([x,y,z])=>x>=bounds.x0&&x<bounds.x1&&y>=bounds.y0&&y<bounds.y1&&z>=bounds.z0&&z<bounds.z1);
+  const mean=[0,1,2].map(k=>points.reduce((sum,p)=>sum+p[k],0)/points.length);
+  assert.equal(points.length,38);
+  assert.deepEqual(center,[-6.75,-8.25,.5]);
+  assert.ok(Math.abs(mean[0]+6.8042)<1e-3);
+  assert.ok(Math.abs(mean[1]+8.1674)<1e-3);
+  assert.notDeepEqual(mean,center);
 });
 
 test("max pooling ignores point order",()=>{

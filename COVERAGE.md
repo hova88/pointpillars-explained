@@ -1,33 +1,22 @@
-# PointPillars coverage matrix
+# Visual coverage
 
-This matrix is a release gate: every algorithm block has a matching interactive chapter and a nearby source-class badge. Each chapter carries Observe, Operate, Inspect, Why, Alternative, Stress-test, and Information-survival fields in `app/curriculum.ts`.
+Every step transforms the same nuScenes point cloud instead of switching to a detached diagram.
 
-| Source topic | Chapter | Interactive evidence |
-|---|---:|---|
-| LiDAR return and unordered sets | 01 | persistent source sweep, point colouring, camera frames |
-| nuScenes frame and transforms | 02 | verified tutorial keyframe, view switching, provenance |
-| Detection bounds | 03 | live range, half-open boundary box |
-| XY pillar quantization | 04 | metric grid and adjustable resolution |
-| Sparse point grouping | 05 | occupied pillar overlay |
-| Pillar/point capacity | 06 | capacity control, truncation/padding reasoning |
-| Point decoration | 07 | centroid and cell-centre references, 9D caveat |
-| Stacked tensor | 08 | D/P/N glossary and shape ledger |
-| Linear + BN + ReLU | 09 | learned point-response overlay |
-| Symmetric max pooling | 10 | feature winners and pooling alternative control |
-| Scatter | 11 | same-frame BEV feature tiles |
-| Top-down backbone | 12 | feature planes and stride ledger |
-| Upsampling and concatenation | 13 | aligned multi-scale planes |
-| SSD head | 14 | scene-registered candidate boxes |
-| Anchor templates | 15 | oriented physical priors |
-| IoU matching | 16 | assignment reasoning and thresholds |
-| Box residual coding | 17 | normalized equation and anchor/target geometry |
-| Direction bins | 18 | orientation-aware boxes and alternative encoding |
-| Focal/Smooth-L1/direction losses | 19 | loss contributions and live focal parameters |
-| Database sampling and transforms | 20 | ghosted transformed objects |
-| Forward/backward training | 21 | directional layer flow |
-| Sigmoid, threshold, decoding | 22 | live score filter and candidates |
-| NMS | 23 | retained/suppressed boxes and IoU control |
-| Output and evaluation | 24 | final scene boxes and protocol distinction |
-| Speed and information tradeoffs | 25 | full-frame compression ledger |
+| Step | Core operation | Scene treatment |
+|---:|---|---|
+| 01 | Raw LiDAR points | black returns on white |
+| 02 | XY floor quantization | metric grid over the complete frame |
+| 03 | Point-to-pillar grouping | translucent blue cell; assigned points remain black |
+| 04 | Fixed pillar center | grid-derived blue cross and exact coordinates |
+| 05 | Point-set mean | data-derived black ring and exact mean |
+| 06 | Point decoration | selected point with both reference vectors |
+| 07 | Shared point encoding and max pooling | per-channel responses beside the physical pillar |
+| 08 | Scatter to pseudo-image | occupied BEV cells over the original frame |
+| 09 | 2D backbone and fusion | aligned translucent feature planes |
+| 10 | Anchor design | physical class-shaped box priors |
+| 11 | Ground-truth matching | overlapping target and anchor geometry |
+| 12 | Composite training loss | spatial hypotheses plus loss contributions |
+| 13 | NMS | retained and faded duplicate boxes |
+| 14 | Final predictions | remaining boxes over the original points |
 
-Pure-function checks cover quantization boundaries, translation behaviour, pooling permutation invariance, box coding, IoU, and NMS in `tests/algorithm.test.mjs`.
+Pure-function tests cover grid boundaries, cluster-offset translation behavior, max-pooling permutation invariance, box coding, IoU, and NMS.

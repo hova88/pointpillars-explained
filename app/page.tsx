@@ -1,5 +1,5 @@
-import PointPillarsExplorer from "./PointPillarsExplorer";
+import PillarExplainer from "./PillarExplainer";
 
 export default function Home() {
-  return <PointPillarsExplorer />;
+  return <PillarExplainer />;
 }
