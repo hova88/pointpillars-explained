@@ -1,0 +1,11 @@
+export type Point4 = [number, number, number, number?];
+export type Box = { x:number; y:number; z:number; w:number; l:number; h:number; yaw:number; score:number };
+export function pillarIndex(point: Point4, range: [number,number,number,number], size: number): [number,number] | null;
+export function decoratePoint(point: Point4, points: Point4[], pillarCenter: [number,number]): number[];
+export function maxPool(channels: number[][]): number[];
+export function sigmoid(value:number): number;
+export function focalLoss(probability:number, target:0|1, alpha?:number, gamma?:number): number;
+export function smoothL1(value:number, beta?:number): number;
+export function boxIou2d(a:Box,b:Box): number;
+export function nms(boxes:Box[], threshold:number): Box[];
+export function encodeBox(box:Box, anchor:Box): number[];
