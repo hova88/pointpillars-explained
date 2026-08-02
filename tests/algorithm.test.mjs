@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { boxIou2d, decoratePoint, encodeBox, maxPool, nms, pillarIndex } from "../lib/algorithm.mjs";
+import { boxIou2d, decoratePoint, encodeBox, gaussianRadius, gaussianValue, maxPool, nms, pillarIndex, rotatedBoxIou2d } from "../lib/algorithm.mjs";
 
 test("pillar indexing uses half-open boundaries",()=>{
   assert.deepEqual(pillarIndex([0,0,0,0],[-1,-1,1,1],.5),[2,2]);
@@ -58,4 +58,35 @@ test("IoU and NMS remove lower-scored duplicate",()=>{
   const b={...a,x:.1,score:.7};
   assert.ok(boxIou2d(a,b)>.8);
   assert.deepEqual(nms([b,a],.5),[a]);
+});
+
+test("rotated IoU respects box orientation",()=>{
+  const a={x:0,y:0,z:0,w:2,l:8,h:2,yaw:0,score:1};
+  assert.ok(Math.abs(rotatedBoxIou2d(a,{...a})-1)<1e-9);
+  assert.ok(rotatedBoxIou2d(a,{...a,yaw:Math.PI/2})<.15);
+  assert.ok(rotatedBoxIou2d(a,{...a,x:1})>.7);
+});
+
+test("CenterHead Gaussian peaks at the object center",()=>{
+  const radius=Math.floor(gaussianRadius([10.201/.4,2.877/.4],.1));
+  const sigma=(2*radius+1)/6;
+  assert.equal(radius,13);
+  assert.equal(gaussianValue(0,0,sigma),1);
+  assert.equal(gaussianValue(3,-2,sigma),gaussianValue(-3,2,sigma));
+  assert.ok(gaussianValue(radius,0,sigma)<.02);
+});
+
+test("the teaching truck crop preserves all three anchor assignment states",()=>{
+  const gt={x:-4.499,y:15.253,z:.396,w:2.877,l:10.201,h:3.595,yaw:1.5952,score:1};
+  const anchors=[];
+  for(const x of [-10.5,-7.5,-4.5,-1.5,1.5])for(const y of [9,12,15,18,21])for(const yaw of [0,Math.PI/2]){
+    const anchor={x,y,z:.3,w:2.8,l:9.6,h:3.4,yaw,score:1};
+    anchors.push({anchor,iou:rotatedBoxIou2d(anchor,gt)});
+  }
+  assert.equal(anchors.length,50);
+  assert.equal(anchors.filter(item=>item.iou>=.55).length,1);
+  assert.equal(anchors.filter(item=>item.iou>=.4&&item.iou<.55).length,2);
+  const best=anchors.sort((a,b)=>b.iou-a.iou)[0];
+  assert.ok(Math.abs(best.iou-.8995313)<1e-6);
+  assert.deepEqual(encodeBox(gt,best.anchor).map(value=>Number(value.toFixed(4))),[.0001,.0253,.0282,.0271,.0607,.0558,.0244]);
 });

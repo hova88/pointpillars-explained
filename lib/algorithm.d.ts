@@ -7,5 +7,8 @@ export function sigmoid(value:number): number;
 export function focalLoss(probability:number, target:0|1, alpha?:number, gamma?:number): number;
 export function smoothL1(value:number, beta?:number): number;
 export function boxIou2d(a:Box,b:Box): number;
+export function rotatedBoxIou2d(a:Box,b:Box): number;
+export function gaussianRadius(size:[number,number],minOverlap?:number): number;
+export function gaussianValue(dx:number,dy:number,sigma:number): number;
 export function nms(boxes:Box[], threshold:number): Box[];
 export function encodeBox(box:Box, anchor:Box): number[];
