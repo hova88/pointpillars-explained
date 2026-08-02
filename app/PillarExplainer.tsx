@@ -70,6 +70,7 @@ export default function PillarExplainer(){
       {step===6&&<StackLedger count={metrics?.count??38}/>}
       {step===7&&<EncodeLedger/>}
       <aside className="pp-margin-note" key={`n${step}`}><b>{step+1}.</b><p>{s.note}</p><i/></aside>
+      <div className="pp-ego-key"><i/>EGO ROADSTER · LIDAR_TOP AT ORIGIN</div>
       <div className="pp-gesture">DRAG TO ROTATE · SCROLL TO ZOOM · CLICK A PILLAR POINT</div>
     </section>
     <footer className="pp-controls">
