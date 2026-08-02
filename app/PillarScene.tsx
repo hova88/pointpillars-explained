@@ -7,13 +7,18 @@ import * as THREE from "three";
 
 type Point=[number,number,number,number];
 type DemoData={points:Point[];originalPointCount:number};
-type BoxAnnotation={category:string;center:[number,number,number];dimensions:[number,number,number];yaw:number;numLidarPoints:number;token:string};
+type BoxAnnotation={category:string;center:[number,number,number];dimensions:[number,number,number];yaw:number;numLidarPoints:number;numRadarPoints:number;token:string};
 type BoxData={boxes:BoxAnnotation[]};
 export type PillarMetrics={count:number;center:[number,number,number];mean:[number,number,number];selected:Point};
+export type SceneSelection=
+  |{kind:"point";index:number;point:Point;range:number;cell:[number,number];insideTeachingPillar:boolean}
+  |{kind:"box";source:"nuScenes ground truth"|"teaching geometry";category:string;center:[number,number,number];dimensions:[number,number,number];yaw:number;numLidarPoints:number;numRadarPoints:number;token:string}
+  |{kind:"cell";stage:"quantization grid"|"pseudo-image";index:[number,number];center:[number,number];bounds:[number,number,number,number];size:number;pointCount:number};
 
 const CELL={x0:-7.5,x1:-6,y0:-9,y1:-7.5,z0:-2.5,z1:3.5};
 const FIXED_CENTER:[number,number,number]=[(CELL.x0+CELL.x1)/2,(CELL.y0+CELL.y1)/2,(CELL.z0+CELL.z1)/2];
 const PAPER="#f8f6ed";
+const EGO_BOX:BoxAnnotation={category:"ego vehicle envelope",center:[0,0,-1],dimensions:[4.6,1.95,1.5],yaw:Math.PI/2,numLidarPoints:0,numRadarPoints:0,token:"ego-teaching-envelope"};
 
 const VectorLine=({from,to,color,width=1}:{from:[number,number,number];to:[number,number,number];color:string;width?:number})=>{
   const positions=useMemo(()=>new Float32Array([...from,...to]),[from,to]);
@@ -27,7 +32,7 @@ function StoryCamera({step}:{step:number}){
   const destination=useMemo(()=>{
     const look=new THREE.Vector3(...FIXED_CENTER);
     if(step===0)return {position:new THREE.Vector3(31,27,25),look:new THREE.Vector3(0,0,0)};
-    if(step===1)return {position:new THREE.Vector3(0,0,46),look:new THREE.Vector3(0,0,0)};
+    if(step===1)return {position:new THREE.Vector3(0,8,72),look:new THREE.Vector3(0,8,0)};
     if(step===2)return {position:look.clone().add(new THREE.Vector3(8,8,7)),look};
     if(step<=5)return {position:look.clone().add(new THREE.Vector3(5.2,5.2,4.2)),look};
     if(step<=7)return {position:look.clone().add(new THREE.Vector3(9,8,7)),look};
@@ -37,7 +42,7 @@ function StoryCamera({step}:{step:number}){
   },[step]);
   useEffect(()=>{
     const orbit=new OrbitControls(camera,gl.domElement);
-    orbit.enableDamping=true;orbit.dampingFactor=.065;orbit.enablePan=false;orbit.minDistance=2;orbit.maxDistance=80;
+    orbit.enableDamping=true;orbit.dampingFactor=.065;orbit.enablePan=false;orbit.minDistance=2;orbit.maxDistance=190;
     controls.current=orbit;
     return()=>orbit.dispose();
   },[camera,gl]);
@@ -136,7 +141,9 @@ function MatchingLayer({mode}:{mode:"match"|"loss"|"nms"|"final"}){
   })}{mode==="loss"&&[.6,1.2,2,3.1].map((h,i)=><mesh key={`l${i}`} position={[-1+i*.7,-8,-2.5+h/2]}><boxGeometry args={[.42,.42,h]}/><meshBasicMaterial color={i<2?"#b9ddeb":"#65a8c6"} transparent opacity={.72}/></mesh>)}</group>;
 }
 
-function RedOutlineBox({center,dimensions,yaw,ego=false}:{center:[number,number,number];dimensions:[number,number,number];yaw:number;ego?:boolean}){
+function JellyBox({box,ego=false,selected,onSelect}:{box:BoxAnnotation;ego?:boolean;selected:boolean;onSelect:(selection:SceneSelection)=>void}){
+  const {center,dimensions,yaw}=box;
+  const group=useRef<THREE.Group>(null);
   const geometry=useMemo(()=>{
     const solid=new THREE.BoxGeometry(...dimensions);
     const edges=new THREE.EdgesGeometry(solid);
@@ -144,44 +151,87 @@ function RedOutlineBox({center,dimensions,yaw,ego=false}:{center:[number,number,
     return edges;
   },[dimensions]);
   useEffect(()=>()=>geometry.dispose(),[geometry]);
-  return <lineSegments position={center} rotation={[0,0,yaw]} geometry={geometry} renderOrder={6}>
-    <lineBasicMaterial color="#d13a32" transparent opacity={ego?1:.82} depthWrite={false}/>
-  </lineSegments>;
-}
-
-function FirstChapterBoxes({boxes}:{boxes:BoxAnnotation[]}){
-  return <group>
-    <RedOutlineBox center={[-.15,0,-1]} dimensions={[4.6,1.95,1.5]} yaw={0} ego/>
-    {boxes.map(box=><RedOutlineBox key={box.token} center={box.center} dimensions={box.dimensions} yaw={box.yaw}/>)}
+  useFrame(()=>{if(group.current){group.current.scale.x=THREE.MathUtils.lerp(group.current.scale.x,1,.1);group.current.scale.y=THREE.MathUtils.lerp(group.current.scale.y,1,.1);group.current.scale.z=THREE.MathUtils.lerp(group.current.scale.z,1,.12)}});
+  const choose=(e:ThreeEvent<PointerEvent>)=>{e.stopPropagation();onSelect({kind:"box",source:ego?"teaching geometry":"nuScenes ground truth",...box})};
+  return <group ref={group} position={center} rotation={[0,0,yaw]} scale={[.84,.84,.06]} onPointerDown={choose} onPointerOver={e=>{e.stopPropagation();document.body.style.cursor="pointer"}} onPointerOut={()=>{document.body.style.cursor="default"}}>
+    <mesh renderOrder={5}>
+      <boxGeometry args={dimensions}/>
+      <meshPhysicalMaterial color={selected?"#ef8279":"#e96860"} transparent opacity={selected?.25:ego?.18:.14} transmission={.48} thickness={1.15} roughness={.12} metalness={0} clearcoat={1} clearcoatRoughness={.16} side={THREE.DoubleSide} depthWrite={false}/>
+    </mesh>
+    <lineSegments geometry={geometry} renderOrder={6}>
+      <lineBasicMaterial color="#c9332b" transparent opacity={selected?1:ego?.92:.72} depthWrite={false}/>
+    </lineSegments>
   </group>;
 }
 
-function SceneContent({data,boxData,step,onMetrics}:{data:DemoData;boxData:BoxData;step:number;onMetrics:(m:PillarMetrics)=>void}){
-  const inside=useMemo(()=>data.points.filter(([x,y,z])=>x>=CELL.x0&&x<CELL.x1&&y>=CELL.y0&&y<CELL.y1&&z>=CELL.z0&&z<CELL.z1),[data]);
-  const outside=useMemo(()=>data.points.filter(([x,y,z])=>!(x>=CELL.x0&&x<CELL.x1&&y>=CELL.y0&&y<CELL.y1&&z>=CELL.z0&&z<CELL.z1)),[data]);
+function GroundTruthLayer({boxes,selection,onSelect}:{boxes:BoxAnnotation[];selection:SceneSelection|null;onSelect:(selection:SceneSelection)=>void}){
+  return <group>
+    <JellyBox box={EGO_BOX} ego selected={selection?.kind==="box"&&selection.token===EGO_BOX.token} onSelect={onSelect}/>
+    {boxes.map(box=><JellyBox key={box.token} box={box} selected={selection?.kind==="box"&&selection.token===box.token} onSelect={onSelect}/>)}
+  </group>;
+}
+
+function ClickableBev({points,size,stage,selection,onSelect}:{points:Point[];size:number;stage:"quantization grid"|"pseudo-image";selection:SceneSelection|null;onSelect:(selection:SceneSelection)=>void}){
+  const extent=24;
+  const occupancy=useMemo(()=>{
+    const counts=new Map<string,number>();
+    points.forEach(([x,y])=>{if(x< -extent||x>=extent||y< -extent||y>=extent)return;const ix=Math.floor((x+extent)/size),iy=Math.floor((y+extent)/size),key=`${ix},${iy}`;counts.set(key,(counts.get(key)??0)+1)});
+    return counts;
+  },[points,size]);
+  const chosen=selection?.kind==="cell"&&selection.stage===stage?selection:null;
+  const choose=(e:ThreeEvent<PointerEvent>)=>{
+    e.stopPropagation();
+    const ix=Math.floor((e.point.x+extent)/size),iy=Math.floor((e.point.y+extent)/size);
+    if(ix<0||iy<0||ix>=48/size||iy>=48/size)return;
+    const x0=-extent+ix*size,y0=-extent+iy*size;
+    onSelect({kind:"cell",stage,index:[iy,ix],center:[x0+size/2,y0+size/2],bounds:[x0,x0+size,y0,y0+size],size,pointCount:occupancy.get(`${ix},${iy}`)??0});
+  };
+  return <group>
+    <mesh position={[0,0,-2.4]} onPointerDown={choose} onPointerOver={()=>{document.body.style.cursor="crosshair"}} onPointerOut={()=>{document.body.style.cursor="default"}}>
+      <planeGeometry args={[48,48]}/><meshBasicMaterial transparent opacity={0} side={THREE.DoubleSide} depthWrite={false}/>
+    </mesh>
+    {chosen&&<mesh position={[chosen.center[0],chosen.center[1],-2.32]} renderOrder={7}>
+      <planeGeometry args={[size*.92,size*.92]}/><meshBasicMaterial color="#e67818" transparent opacity={.28} side={THREE.DoubleSide} depthWrite={false}/>
+    </mesh>}
+  </group>;
+}
+
+function SceneContent({data,boxData,step,selection,onSelection,onMetrics}:{data:DemoData;boxData:BoxData;step:number;selection:SceneSelection|null;onSelection:(selection:SceneSelection|null)=>void;onMetrics:(m:PillarMetrics)=>void}){
+  const partitions=useMemo(()=>{
+    const inside:{point:Point;index:number}[]=[],outside:{point:Point;index:number}[]=[];
+    data.points.forEach((point,index)=>{const [x,y,z]=point;(x>=CELL.x0&&x<CELL.x1&&y>=CELL.y0&&y<CELL.y1&&z>=CELL.z0&&z<CELL.z1?inside:outside).push({point,index})});
+    return {inside,outside};
+  },[data]);
+  const inside=useMemo(()=>partitions.inside.map(item=>item.point),[partitions]);
+  const outside=useMemo(()=>partitions.outside.map(item=>item.point),[partitions]);
   const mean=useMemo<[number,number,number]>(()=>[0,1,2].map(k=>inside.reduce((s,p)=>s+p[k],0)/inside.length) as [number,number,number],[inside]);
   const [selectedIndex,setSelectedIndex]=useState(0);
   const selected=inside[selectedIndex]??inside[0];
   useEffect(()=>{if(selected)onMetrics({count:inside.length,center:FIXED_CENTER,mean,selected})},[inside,mean,selected,onMetrics]);
   const outsidePositions=useMemo(()=>new Float32Array(outside.flatMap(p=>p.slice(0,3))),[outside]);
   const insidePositions=useMemo(()=>new Float32Array(inside.flatMap(p=>p.slice(0,3))),[inside]);
+  const choosePoint=(item:{point:Point;index:number},insideTeachingPillar:boolean,e:ThreeEvent<PointerEvent>)=>{
+    e.stopPropagation();const [x,y,z]=item.point;
+    onSelection({kind:"point",index:item.index,point:item.point,range:Math.hypot(x,y,z),cell:[Math.floor((y+24)/1.5),Math.floor((x+24)/1.5)],insideTeachingPillar});
+  };
   return <>
     <StoryCamera step={step}/>
-    {step===0&&<FirstChapterBoxes boxes={boxData.boxes}/>}
-    <points>
+    {step===1&&<GroundTruthLayer boxes={boxData.boxes} selection={selection} onSelect={onSelection}/>}
+    <points onPointerDown={e=>{if(typeof e.index==="number")choosePoint(partitions.outside[e.index],false,e)}}>
       <bufferGeometry><bufferAttribute attach="attributes-position" args={[outsidePositions,3]}/></bufferGeometry>
       <pointsMaterial color="#111111" size={step>=2?.10:.16} transparent opacity={step>=2?.15:.86} sizeAttenuation/>
     </points>
-    <points onPointerDown={(e:ThreeEvent<PointerEvent>)=>{e.stopPropagation();if(typeof e.index==="number")setSelectedIndex(e.index)}}>
+    <points onPointerDown={(e:ThreeEvent<PointerEvent>)=>{if(typeof e.index==="number"){setSelectedIndex(e.index);choosePoint(partitions.inside[e.index],true,e)}}}>
       <bufferGeometry><bufferAttribute attach="attributes-position" args={[insidePositions,3]}/></bufferGeometry>
       <pointsMaterial color="#050505" size={step>=2?.24:.17} transparent opacity={1} sizeAttenuation/>
     </points>
-    {step===1&&<MetricGrid/>}
+    {selection?.kind==="point"&&<group position={[selection.point[0],selection.point[1],selection.point[2]]} renderOrder={8}><mesh><sphereGeometry args={[.16,18,18]}/><meshBasicMaterial color="#e67818"/></mesh><mesh rotation={[Math.PI/2,0,0]}><ringGeometry args={[.24,.29,30]}/><meshBasicMaterial color="#e67818" transparent opacity={.8} side={THREE.DoubleSide}/></mesh></group>}
+    {step===1&&<><MetricGrid/><ClickableBev points={data.points} size={1.5} stage="quantization grid" selection={selection} onSelect={onSelection}/></>}
     {step>=2&&step<=7&&<><MetricGrid local/><Pillar key={step} step={step}/></>}
     {step>=3&&step<=7&&<CenterMarker position={FIXED_CENTER} kind="fixed"/>}
     {step>=4&&step<=7&&<CenterMarker position={mean} kind="mean"/>}
     {step>=5&&step<=7&&selected&&<><mesh position={[selected[0],selected[1],selected[2]]}><sphereGeometry args={[.15,20,20]}/><meshBasicMaterial color="#050505"/></mesh><VectorLine from={[selected[0],selected[1],selected[2]]} to={FIXED_CENTER} color="#65a8c6"/><VectorLine from={[selected[0],selected[1],selected[2]]} to={mean} color="#111111"/></>}
-    {step===8&&<PseudoImageLayer points={data.points}/>}
+    {step===8&&<><PseudoImageLayer points={data.points}/><ClickableBev points={data.points} size={3} stage="pseudo-image" selection={selection} onSelect={onSelection}/></>}
     {step===9&&<BackboneLayer/>}
     {step===10&&<AnchorLayer/>}
     {step===11&&<><AnchorLayer/><MatchingLayer mode="match"/></>}
@@ -191,7 +241,7 @@ function SceneContent({data,boxData,step,onMetrics}:{data:DemoData;boxData:BoxDa
   </>;
 }
 
-export function PillarScene({step,onMetrics}:{step:number;onMetrics:(m:PillarMetrics)=>void}){
+export function PillarScene({step,selection,onSelection,onMetrics}:{step:number;selection:SceneSelection|null;onSelection:(selection:SceneSelection|null)=>void;onMetrics:(m:PillarMetrics)=>void}){
   const [data,setData]=useState<DemoData|null>(null);
   const [boxData,setBoxData]=useState<BoxData|null>(null);
   useEffect(()=>{
@@ -202,9 +252,9 @@ export function PillarScene({step,onMetrics}:{step:number;onMetrics:(m:PillarMet
     ]).then(([cloud,boxes])=>{setData(cloud);setBoxData(boxes)});
   },[]);
   return <div className="pp-canvas" aria-label="Interactive PointPillars geometry">
-    {data&&boxData?<Canvas camera={{position:[31,27,25],fov:44,near:.05,far:200}} dpr={[1,1.7]} gl={{antialias:true}}>
+    {data&&boxData?<Canvas camera={{position:[31,27,25],fov:44,near:.05,far:200}} dpr={[1,1.7]} gl={{antialias:true}} onCreated={({raycaster})=>{raycaster.params.Points.threshold=.34}} onPointerMissed={()=>onSelection(null)}>
       <color attach="background" args={[PAPER]}/><ambientLight intensity={2.2}/><directionalLight position={[8,9,14]} intensity={2.8}/>
-      <SceneContent data={data} boxData={boxData} step={step} onMetrics={onMetrics}/>
+      <SceneContent data={data} boxData={boxData} step={step} selection={selection} onSelection={onSelection} onMetrics={onMetrics}/>
     </Canvas>:<div className="pp-loading">Loading the LiDAR frame</div>}
   </div>;
 }

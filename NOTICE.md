@@ -2,7 +2,7 @@
 
 This is an independent, non-commercial educational project. It is not affiliated with the PointPillars authors, Motional, nuScenes, or OpenMMLab.
 
-The reduced point-cloud teaching asset in `public/data/nuscenes-lidar-demo.json` is derived from nuScenes sample `ca9a282c9e77460f8360f564131a8af5`, sample-data token `9d9bf11fb0e144c8b446d54a8a00184f`. The original binary is mirrored in the MMDetection3D demonstration assets. `public/data/nuscenes-boxes.json` contains a compact selection of the same sample's official annotations transformed from global coordinates into its `LIDAR_TOP` frame. The red ego envelope is explicitly teaching geometry, not a nuScenes ground-truth annotation. nuScenes-derived data is used under the nuScenes Dataset Terms and CC BY-NC-SA 4.0 for non-commercial education. See https://www.nuscenes.org/terms-of-use.
+The reduced point-cloud teaching asset in `public/data/nuscenes-lidar-demo.json` is derived from nuScenes sample `ca9a282c9e77460f8360f564131a8af5`, sample-data token `9d9bf11fb0e144c8b446d54a8a00184f`. The original binary is mirrored in the MMDetection3D demonstration assets. `public/data/nuscenes-boxes.json` contains all 69 official annotations attached to the same sample, transformed from global coordinates into its native `LIDAR_TOP` frame (`+x` right, `+y` forward, `+z` up). The red ego envelope is explicitly teaching geometry, not a nuScenes ground-truth annotation. nuScenes-derived data is used under the nuScenes Dataset Terms and CC BY-NC-SA 4.0 for non-commercial education. See https://www.nuscenes.org/terms-of-use.
 
 Primary research citation:
 
