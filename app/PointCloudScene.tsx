@@ -3,21 +3,53 @@
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as THREE from "three";
+import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
 
 type DemoData = { points: [number,number,number,number][]; originalPointCount:number; sampling:string };
 type ViewMode = "perspective" | "bev" | "ego";
 
-function CameraRig({ mode }: { mode: ViewMode }) {
-  const { camera } = useThree();
-  const target = useMemo(() => ({
-    perspective: new THREE.Vector3(33, 29, 30),
-    bev: new THREE.Vector3(0, 0, 58),
-    ego: new THREE.Vector3(-1, -18, 5),
-  }[mode]), [mode]);
+function storyCamera(chapter:number){
+  if(chapter<=2)return {position:[33,29,30],look:[0,0,0]};
+  if(chapter===3)return {position:[28,28,42],look:[0,0,0]};
+  if(chapter<=6)return {position:[13,13,10],look:[5.4,7,1]};
+  if(chapter===7)return {position:[10,11,7],look:[5.4,7,1.2]};
+  if(chapter<=10)return {position:[11,12,8],look:[5.4,7,1.3]};
+  if(chapter===11)return {position:[0,0,40],look:[0,2,0]};
+  if(chapter<=13)return {position:[29,25,26],look:[0,1,7]};
+  if(chapter<=20)return {position:[21,19,17],look:[2,4,1]};
+  if(chapter===21)return {position:[34,29,31],look:[0,3,3]};
+  if(chapter<=24)return {position:[18,18,15],look:[2,4,1]};
+  return {position:[35,30,34],look:[0,0,2]};
+}
+
+function CameraRig({ mode, chapter }: { mode: ViewMode; chapter:number }) {
+  const { camera, gl } = useThree();
+  const controls=useRef<OrbitControls|null>(null);
+  const transition=useRef(0);
+  const story=useMemo(()=>storyCamera(chapter),[chapter]);
+  const destination=useMemo(()=>{
+    if(mode==="bev")return {position:[0,0,58],look:[0,0,0]};
+    if(mode==="ego")return {position:[-1,-18,5],look:[0,16,1]};
+    return story;
+  },[mode,story]);
+  useEffect(()=>{
+    const orbit=new OrbitControls(camera,gl.domElement);
+    orbit.enableDamping=true; orbit.dampingFactor=.07; orbit.enablePan=false; orbit.minDistance=2.5; orbit.maxDistance=90;
+    controls.current=orbit;
+    return()=>orbit.dispose();
+  },[camera,gl]);
+  useEffect(()=>{transition.current=0},[chapter,mode]);
   useFrame(() => {
-    camera.position.lerp(target, 0.075);
+    const orbit=controls.current;
+    const position=new THREE.Vector3(...destination.position);
+    const look=new THREE.Vector3(...destination.look);
+    if(transition.current<.995){
+      camera.position.lerp(position,.075);
+      orbit?.target.lerp(look,.075);
+      transition.current+=.075*(1-transition.current);
+    }
     camera.up.set(0, 0, 1);
-    camera.lookAt(mode === "ego" ? new THREE.Vector3(0, 16, 1) : new THREE.Vector3(0, 0, 0));
+    orbit?.update();
   });
   return null;
 }
@@ -39,7 +71,12 @@ function Grid({ size, visible }: { size:number; visible:boolean }) {
 
 const Box=({position,size,color="#f5f5f0",opacity=.8,rotation=0}:{position:[number,number,number];size:[number,number,number];color?:string;opacity?:number;rotation?:number})=><mesh position={position} rotation={[0,0,rotation]}><boxGeometry args={size}/><meshBasicMaterial color={color} transparent opacity={opacity} wireframe/></mesh>;
 
-function NarrativeLayers({chapter,size,range}:{chapter:number;size:number;range:number}){
+const Segment=({from,to,color}:{from:[number,number,number];to:[number,number,number];color:string})=>{
+  const points=useMemo(()=>new Float32Array([...from,...to]),[from,to]);
+  return <line><bufferGeometry><bufferAttribute attach="attributes-position" args={[points,3]}/></bufferGeometry><lineBasicMaterial color={color}/></line>;
+};
+
+function NarrativeContent({chapter,size,range}:{chapter:number;size:number;range:number}){
   const cells=Array.from({length:16},(_,i)=>({x:(i%4-1.5)*1.55+5.4,y:(Math.floor(i/4)-1.5)*1.55+7,h:.6+(i%5)*.42}));
   const anchors=[
     {p:[7,10,1.1] as [number,number,number],s:[4.4,1.9,1.6] as [number,number,number],r:-.16},
@@ -49,7 +86,7 @@ function NarrativeLayers({chapter,size,range}:{chapter:number;size:number;range:
   if(chapter<=2)return <group>{Array.from({length:4},(_,i)=><mesh key={i} rotation={[0,0,i*.42]}><ringGeometry args={[7+i*4,7.04+i*4,96]}/><meshBasicMaterial color="#7aa7c7" transparent opacity={.18}/></mesh>)}</group>;
   if(chapter===3)return <Box position={[0,0,1.5]} size={[range*2,range*2,3]} color="#f5f5f0" opacity={.5}/>;
   if(chapter<=6)return <group>{cells.map((c,i)=><Box key={i} position={[c.x,c.y,c.h/2]} size={[size*5,size*5,c.h]} color={i===9?"#f2b544":"#7aa7c7"} opacity={i===9?1:.35}/>)}</group>;
-  if(chapter===7)return <group><Box position={[5.4,7,3]} size={[size*5,size*5,6]} color="#f2b544"/><mesh position={[5.4,7,1.3]}><sphereGeometry args={[.2,16,16]}/><meshBasicMaterial color="#f2b544"/></mesh><mesh position={[5.78,7.35,1.75]}><sphereGeometry args={[.16,16,16]}/><meshBasicMaterial color="#e9573f"/></mesh></group>;
+  if(chapter===7)return <group><Box position={[5.4,7,3]} size={[size*5,size*5,6]} color="#f2b544"/><mesh position={[5.4,7,1.3]}><sphereGeometry args={[.16,16,16]}/><meshBasicMaterial color="#f2b544"/></mesh><mesh position={[5.78,7.35,1.75]}><sphereGeometry args={[.12,16,16]}/><meshBasicMaterial color="#e9573f"/></mesh><Segment from={[5.78,7.35,1.75]} to={[5.4,7,1.3]} color="#e9573f"/><Segment from={[5.78,7.35,1.75]} to={[5.4,7,0]} color="#7aa7c7"/></group>;
   if(chapter<=10)return <group>{cells.slice(0,10).map((c,i)=><mesh key={i} position={[c.x,c.y,c.h/2]}><cylinderGeometry args={[.08,.08,c.h,8]}/><meshBasicMaterial color={i%3===0?"#f2b544":"#7aa7c7"} transparent opacity={.75}/></mesh>)}</group>;
   if(chapter===11)return <group>{cells.map((c,i)=><mesh key={i} position={[c.x,c.y,.04]}><boxGeometry args={[size*5,size*5,.08]}/><meshBasicMaterial color={new THREE.Color().setHSL(.57,.38,.25+i/55)} transparent opacity={.82}/></mesh>)}</group>;
   if(chapter<=13)return <group>{[0,1,2].map((z)=><mesh key={z} position={[0,1,7+z*2.2]}><planeGeometry args={[30-z*5,22-z*4,12,8]}/><meshBasicMaterial color={z===2?"#f2b544":"#7aa7c7"} transparent opacity={.09+z*.04} wireframe/></mesh>)}</group>;
@@ -60,6 +97,12 @@ function NarrativeLayers({chapter,size,range}:{chapter:number;size:number;range:
   if(chapter<=23)return <group>{anchors.map((a,i)=><Box key={i} position={a.p} size={a.s} rotation={a.r} color={chapter===23&&i===1?"#e9573f":"#f2b544"} opacity={chapter===23&&i===1?.25:.9}/>)}</group>;
   if(chapter===24)return <group>{anchors.filter((_,i)=>i!==1).map((a,i)=><Box key={i} position={a.p} size={a.s} rotation={a.r} color="#f2b544" opacity={1}/>)}</group>;
   return <group><Box position={[0,0,1.5]} size={[range*2,range*2,3]} color="#7aa7c7" opacity={.22}/>{anchors.map((a,i)=><Box key={i} position={a.p} size={a.s} rotation={a.r} color="#f2b544" opacity={.7}/>)}</group>;
+}
+
+function NarrativeLayers(props:{chapter:number;size:number;range:number}){
+  const layer=useRef<THREE.Group>(null);
+  useFrame(()=>{if(layer.current){layer.current.position.z=THREE.MathUtils.lerp(layer.current.position.z,0,.09);layer.current.scale.lerp(new THREE.Vector3(1,1,1),.09)}});
+  return <group ref={layer} position={[0,0,-1.8]} scale={[.94,.94,.94]}><NarrativeContent {...props}/></group>;
 }
 
 function Cloud({ data, colorMode, range, size, showGrid, chapter }:{data:DemoData;colorMode:string;range:number;size:number;showGrid:boolean;chapter:number}){
@@ -89,14 +132,13 @@ function Cloud({ data, colorMode, range, size, showGrid, chapter }:{data:DemoDat
     </points>
     <Grid size={size} visible={showGrid}/>
     <mesh position={[0,0,.35]}><boxGeometry args={[1.8,4.2,.7]}/><meshBasicMaterial color="#d8ff38" wireframe/></mesh>
-    <NarrativeLayers chapter={chapter} size={size} range={range}/>
+    <NarrativeLayers key={chapter} chapter={chapter} size={size} range={range}/>
   </group>;
 }
 
 export function PointCloudScene({ chapter, gridSize, range }:{chapter:number;gridSize:number;range:number}){
   const [data,setData]=useState<DemoData|null>(null);
   const [view,setView]=useState<ViewMode>("perspective");
-  const [colorMode,setColorMode]=useState("distance");
   useEffect(()=>{
     const base=process.env.NODE_ENV==="production"?"/pointpillars-explained":"";
     fetch(`${base}/data/nuscenes-lidar-demo.json`).then(r=>r.json()).then(setData);
@@ -105,18 +147,16 @@ export function PointCloudScene({ chapter, gridSize, range }:{chapter:number;gri
   return <div className="scene-shell" aria-label="Interactive nuScenes LiDAR point cloud">
     <div className="scene-toolbar">
       <div className="segmented" aria-label="Camera view">
-        {(["perspective","bev","ego"] as ViewMode[]).map(v=><button key={v} className={view===v?"active":""} onClick={()=>setView(v)}>{v}</button>)}
+        {(["perspective","bev","ego"] as ViewMode[]).map(v=><button key={v} className={view===v?"active":""} onClick={()=>setView(v)}>{v==="perspective"?"3D":v.toUpperCase()}</button>)}
       </div>
-      <div className="segmented" aria-label="Point color">
-        {["distance","height","intensity"].map(v=><button key={v} className={colorMode===v?"active":""} onClick={()=>setColorMode(v)}>{v}</button>)}
-      </div>
+      <span className="gesture-hint">DRAG · SCROLL</span>
     </div>
     <div className="scene-canvas">
       {data ? <Canvas camera={{position:[33,29,30],fov:48,near:.1,far:300}} dpr={[1,1.5]}>
         <color attach="background" args={["#071014"]}/>
         <fog attach="fog" args={["#071014",45,100]}/>
-        <CameraRig mode={view}/>
-        <Cloud data={data} colorMode={colorMode} range={range} size={gridSize} showGrid={chapter>=3&&chapter<=13} chapter={chapter}/>
+        <CameraRig mode={view} chapter={chapter}/>
+        <Cloud data={data} colorMode="distance" range={range} size={gridSize} showGrid={chapter>=3&&chapter<=13} chapter={chapter}/>
       </Canvas> : <div className="scene-loading">Loading verified LiDAR frame…</div>}
     </div>
     <div className="scene-narrative"><span>{String(chapter).padStart(2,"0")}</span><p>{narrative}</p></div>
